@@ -51,7 +51,8 @@ make install        # release build + copy to /Applications
 | `make update` | `git pull`, rebuild, reinstall |
 | `make check-update` | report whether the remote has new commits |
 | `make icon` | regenerate `Resources/AppIcon.icns` |
-| `make dist` | build the zip attached to a release |
+| `make dist` | zip the app in `build/` without rebuilding it |
+| `make package` | `build` then `dist` |
 | `make clean` | remove `build/` and `.build/` |
 
 Then launch it like any other app — Spotlight (`Cmd-Space` → `Live Subtitles`),

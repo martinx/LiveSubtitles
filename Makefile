@@ -11,7 +11,7 @@
 APP  := build/LiveSubtitles.app
 ZIP  := build/LiveSubtitles.zip
 
-.PHONY: all build debug run install icon update check-update dist clean
+.PHONY: all build debug run install icon update check-update dist package clean
 
 all: build
 
@@ -37,11 +37,20 @@ update:
 check-update:
 	@scripts/update.sh --fetch
 
-# ditto rather than zip: it preserves the bundle's metadata and symlinks.
-dist: build
+# Zip whatever is already in build/.
+#
+# This deliberately does NOT depend on `build`. Rebuilding here would re-stamp and
+# re-sign the app, which would throw away the version the tag supplied - and, when
+# signing secrets are configured, the signature and the notarisation ticket stapled to
+# it. Package only what was just built and signed.
+dist:
+	@test -d $(APP) || { echo "nothing to package: run 'make build' first" >&2; exit 1; }
 	@rm -f $(ZIP)
 	@cd build && ditto -c -k --sequesterRsrc --keepParent LiveSubtitles.app LiveSubtitles.zip
 	@echo "==> $(ZIP)"
+
+# Convenience for local use: build, then package.
+package: build dist
 
 clean:
 	@rm -rf build .build
