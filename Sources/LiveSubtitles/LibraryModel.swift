@@ -218,7 +218,15 @@ final class LibraryModel: ObservableObject {
         return DictionaryLookup.words(in: cue.text)
     }
 
-    var translationOn: Bool { translationPhase != .off }
+    /// Whether whole-paragraph translation is on.
+    ///
+    /// Deliberately its own flag rather than `translationPhase != .off`. A word lookup leaves
+    /// the phase at `.glossing`, so deriving "on" from the phase made the toolbar's press
+    /// take the *off* branch — the button appeared to do nothing, because it had turned off
+    /// something that was never on.
+    @Published private(set) var paragraphTranslationOn = false
+
+    var translationOn: Bool { paragraphTranslationOn }
 
     /// The same toggle, expressed as "turn it on" for menu items.
     func toggleTranslationOn() {
@@ -227,10 +235,14 @@ final class LibraryModel: ObservableObject {
     }
 
     func toggleTranslation() {
-        if translationOn {
-            translationPhase = .off
+        if paragraphTranslationOn {
+            paragraphTranslationOn = false
             translations = [:]
+            // A word card may still be showing its own gloss; that is not this toggle's
+            // business to clear.
+            if translationPhase != .glossing { translationPhase = .off }
         } else {
+            paragraphTranslationOn = true
             translationPhase = .waiting
             translationScope = .paragraphs
             translationRequestID += 1
@@ -551,7 +563,7 @@ final class LibraryModel: ObservableObject {
         selectedCueID = nil
         clearInspection()
         translations = [:]
-        if translationOn {
+        if paragraphTranslationOn {
             translationPhase = .waiting
             translationScope = .paragraphs
             translationRequestID += 1

@@ -374,8 +374,7 @@ struct LibraryView: View {
 
             GlassControlGroup {
                 ToolbarIconButton(symbol: "translate",
-                                  help: model.translationPhase.label,
-                                  enabled: !model.isSearching) {
+                                  help: model.translationPhase.label) {
                     model.toggleTranslation()
                 }
                 ToolbarIconButton(symbol: "note.text", help: "Write a note about this session") {
@@ -1283,7 +1282,9 @@ private struct ParagraphTranslationHost: ViewModifier {
                 // the next turn of the run loop, which is a change by any measure.
                 configuration = nil
                 Task { @MainActor in
-                    await Task.yield()
+                    // A yield is not enough: SwiftUI coalesces both writes into one render
+                    // pass and sees no change at all. A short sleep guarantees two.
+                    try? await Task.sleep(for: .milliseconds(40))
                     configuration = TranslationSession.Configuration(
                         source: Locale.Language(identifier: "en"),
                         target: Locale.Language(identifier: "zh-Hans"))
