@@ -72,28 +72,69 @@ streaming transcript alongside so the two can be compared.
 Only the models marked **bold** are essential to the quality bar. The rest are either free
 (system), already shipped (FluidAudio), or small.
 
-## 3. Memory, and how to be greedy without swapping
+## 3. Memory — measured, and it corrects an earlier assumption
 
-24 GB unified; ~9 GB goes to macOS, the app and caches **[estimate]**, leaving ~15 GB.
+I had assumed the streaming model occupied about a gigabyte of RAM and that unloading it
+would make room for a big LLM. Measured on this machine, while listening:
 
 ```
-监听时:  streaming ASR + VAD + ITN                     ~1.0 GB
-分析时:  batch ASR ~1.6 + LLM 14B ~8.5 + 嵌入 0.5 + 其他  ~11 GB   ✓ 舒适
-最优质:  batch ASR ~1.6 + Qwen3-30B-A3B ~17 + 其他       ~19 GB   ⚠ 需先释放 ASR 与缓存
+footprint of LiveSubtitles while captioning:
+    phys_footprint :  53 MB        <- the app's real physical cost
+    neural         : 576 MB        <- CoreML weights, owned by the system
+    (listed as "Owned physical footprint (unmapped) (neural) (nofootprint)")
 ```
 
-Because the phases never overlap, the app's peak is the **max** of these, not their sum.
-The mechanism is a small **model broker**: one component that knows every model's size,
-loads on demand, evicts by recency, and refuses to load something that would not fit —
-rather than letting each feature load whatever it likes.
+**CoreML/ANE weights are `nofootprint`.** They do not count against the app's physical
+footprint, and macOS manages them separately. Two consequences:
 
-Rules worth writing down now:
+1. **The streaming model is not the memory problem.** Freeing it reclaims almost nothing
+   that an MLX LLM could use.
+2. **The 30B tier does not depend on unloading the recogniser.** The binding constraint is
+   the LLM's own weights plus its KV cache, not the ASR.
 
-1. Never run batch ASR and the LLM at the same time.
-2. Evict the streaming model whenever listening stops and analysis starts.
-3. Qwen3-30B-A3B is a **mode**, not a default: it requires the "maximum quality" switch,
-   and the app says plainly what it will unload.
-4. Everything above 70B is out of reach at 4-bit (~40 GB) — do not design around it.
+So the design no longer evicts the streaming model to make room. It keeps it, and the
+"maximum quality" tier is limited by what the LLM itself needs:
+
+```
+24 GB total
+  ~9 GB   macOS, the app, caches                              [estimate]
+  ~8.5 GB Qwen3-14B, 4-bit            -> comfortable
+  ~17 GB  Qwen3-30B-A3B, 4-bit        -> tight; KV cache and context decide whether it fits
+```
+
+This also means the earlier "卸载流式" memory plan was solving a non-problem. Whether the
+MoE model actually fits with a useful context window must be **measured with the real
+model** before it is offered, not assumed — which is a small spike, not a design question.
+
+A model broker is still worth having, for a different reason: to stop *two LLM-sized*
+allocations from coexisting (translation model + main LLM + embeddings), and to decide
+eviction by measured size rather than by hope.
+
+### Measured cost of the streaming model's reload
+
+Unloading is cheap, whatever we decide:
+
+| | |
+|---|---|
+| Stop listening (release), then start again | **0.32 s** to resume capturing |
+| Live subtitle quality | **unchanged** — same model, same code path |
+
+So even if unloading were needed, the price is a third of a second, not degraded captions.
+
+## 3a. Measured cost of diarisation
+
+Run through FluidAudio's offline path on a 98-second two-voice conversation:
+
+| | |
+|---|---|
+| Model download | **14 MB** |
+| Processing time | 0.75–0.89 s |
+| Real-time factor | **130×** |
+| Speakers detected | **2 of 2, correctly** |
+| **45-minute episode** | **≈ 21 seconds** |
+
+It runs after the session, so it cannot touch live subtitles, and at twenty seconds per
+episode there is no reason to make it optional.
 
 ## 4. Runtimes this adds
 

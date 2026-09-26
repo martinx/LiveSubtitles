@@ -311,6 +311,25 @@ LiveSubtitles/                      this repo
   tests, and its own dependency list**.
 - Its API can be tested without launching the app, which is the real reason to separate it.
 
+**On the worry that a user with a simple need must download everything.** They do not, and
+the numbers are worth writing down:
+
+| | |
+|---|---|
+| Whole repository, all 60 tracked files | **0.9 MB** |
+| `.git` history | 3.2 MB |
+| What a user actually downloads | **9.5 MB DMG** |
+
+A user never clones anything — they get a compiled disk image. Model weights are fetched on
+first use, so adding the study features does not inflate that DMG. The repository is smaller
+than a single screenshot.
+
+**And two apps would be worse, not cleaner.** The decisive reason is TCC: Screen Recording
+is granted per bundle identifier. Two apps means two permission prompts, two grants to keep
+in step, and a study app that cannot read the live app's sessions without IPC or a shared
+container. It also doubles the release pipeline. One app, two windows; the isolation that
+matters comes from the module boundary above.
+
 **Why not a second repository yet.** A separate repo adds a clone, a second CI setup, and
 version choreography for every change that touches both sides — for a single developer,
 that is friction on every commit in exchange for isolation the module boundary already
