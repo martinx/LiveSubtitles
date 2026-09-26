@@ -141,7 +141,7 @@ jobs:
       # ---------------------------------------------------------------- publish ---
       - name: Upload the artefacts (dry run)
         if: ${{ github.event.inputs.dry_run == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: LiveSubtitles-${{ github.event.inputs.tag }}
           path: |
