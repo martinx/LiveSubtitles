@@ -1,183 +1,152 @@
-# Model inventory for the study window
+# Model stack for the study window — quality first
 
-The live path needs one kind of model: a streaming recogniser. Everything *after* the
-session is a different set of problems, and the ASR model contributes almost nothing to
-them. This is the full inventory of what each post-processing task actually needs, what is
-available locally today, and where the honest gaps are.
-
-Marked **[verified]** where I checked the installed SDK or the FluidAudio checkout, and
-**[estimate]** where the number is a calculation rather than a measurement.
+Revision 2. The brief changed: **any model that runs on this machine may be installed**,
+so the question is no longer "what does the OS already give us" but "what is actually
+best, and does it fit in 24 GB of unified memory".
 
 ---
 
-## 1. The tasks, and what each one really needs
+## 0. Resolving "best quality" against "best performance"
 
-| Task | Needs | Best local option | Why not something simpler |
+They only conflict if you demand both at the same instant. They do not have to:
+
+| Phase | Constraint | What runs |
+|---|---|---|
+| **Live captioning** | Must not stutter. Everything here is already chosen for latency. | Streaming ASR + VAD + ITN, nothing else |
+| **After the episode** | Background, cancellable, no deadline. | The entire heavy stack |
+
+So the live path is unchanged, and quality is limited only by what fits in memory *when
+nothing is being captioned*. That is the whole licence to be greedy.
+
+## 1. The biggest quality win is not an LLM — it is a second ASR pass
+
+The current design assumes we clean up the streaming transcript's errors with an LLM.
+That is backwards. An LLM rewriting mis-heard words is guessing; **re-recognising the
+audio with a batch model is measuring.** We keep the audio specifically to make this
+possible.
+
+```
+during the episode   streaming Parakeet        →  live subtitles (0.6–0.9 s, unchanged)
+after the episode    batch model on the same audio →  the transcript we actually keep
+```
+
+This is the single highest-value item in the whole plan: it fixes the recognition errors
+you complained about at the source, and it also yields word-level timestamps for free in
+most batch models, which is what karaoke highlighting and precise replay need.
+
+Candidate batch models, all of which fit:
+
+| Model | Size | Strength | Word timings |
 |---|---|---|---|
-| Drop hallucinated cues over music | Audio event classification | **SoundAnalysis** `SNClassifySoundRequest` [verified] | Text heuristics guess; the classifier knows the segment was music |
-| Cut cue boundaries, drop silence | Voice activity detection | **FluidAudio VAD** (Fsmn) [verified] | Already in the dependency |
-| Numbers, dates, money | Inverse text normalisation | **FluidAudio `TextNormalizer`** [verified] | Already in the dependency |
-| Fix obvious mis-hearings | LLM with context | **Tier 2 LLM** (§3) | A 3B model rewrites too freely; see §4 |
-| Punctuation and casing for EOU output | LLM or a punctuation model | Tier 1 for speed, Tier 2 for quality | EOU emits none at all; the default model already punctuates |
-| Spoken → written normalisation | LLM | Tier 2 | Filler removal and false starts are judgement calls |
-| Who said what | Speaker diarisation | **FluidAudio `OfflineSortformerDiarizer`** [verified] | Runs after the session; see §5 |
-| Word-level timing (karaoke, precise replay) | Token timestamps or forced alignment | **FluidAudio `TokenTimestamps`** [verified] — EOU exposes them; other models still need alignment | Cue-level timing is not enough to highlight a word |
-| English → Chinese translation | MT or a bilingual LLM | **Translation framework** [verified] for the fast path; **Tier 2 LLM** for nuance | Line-by-line MT reads worse than a paragraph pass |
-| Word lookup | Dictionary | **`DCSCopyTextDefinition`** [verified] | Free, offline, no model |
-| Grammar in learner writing | Deterministic checker first | **`NSSpellChecker.checkGrammarOfString:grammarDetails:`** [verified] | Catches the mechanical errors for free, and grounds the LLM |
-| Explain *why* a sentence is wrong | LLM | Tier 2 | This is teaching, not proofreading |
-| Grade a summary | LLM with rubric | Tier 2 | Judgement — the weakest thing a 3B model does |
-| Generate cloze / exercises | LLM, structured | Tier 1 is fine | Constrained and short |
-| Tokens, lemmas, POS, entities | Tagger | **`NLTagger`** [verified] | Deterministic, instant, free |
-| Frequency and CEFR band | Word list + counts | Bundled list + SQLite | No model needed; licensing is the issue (§7) |
-| Readability (Flesch etc.) | Arithmetic | None | Pure calculation |
-| Semantic search, "similar sentences" | Sentence embeddings | **`NLContextualEmbedding` / `NLEmbedding`** [verified] | Free and on-device; no vector DB model needed |
-| Topic grouping, dedup across episodes | Embeddings + clustering | Same as above | — |
-| Text search | Index | **SQLite FTS5** [verified] | — |
-| Read a line aloud | TTS | **FluidAudio TTS** (Kokoro, KokoroAne, Chatterbox, StyleTTS2, LuxTts, NeuTts, PocketTTS, Supertonic3) [verified], or Apple premium voices | — |
-| Speaking practice | Recognition of the learner + comparison | **Existing ASR** + word diff | True pronunciation scoring is a gap; see §6 |
-| Conversation partner | LLM + TTS + ASR | Tier 2 + FluidAudio TTS | Fully local |
-| Dependency / syntax analysis | Parser | **Gap** — see §6 | `NLTagger` gives POS, not a tree |
+| **Parakeet TDT v3 / Ultra** (FluidAudio, ANE) | 0.6–1.2 GB | Tops the Open ASR leaderboard for English; already in our dependency | via aligner |
+| **Whisper large-v3-turbo** (whisper.cpp / WhisperKit) | ~1.6 GB | Very robust across accents and music; timed | built in |
+| **Whisper large-v3** | ~3 GB | Highest Whisper accuracy | built in |
+| **Canary-1B / Canary-Qwen-2.5B** (NVIDIA) | 1–2.5 GB | Strong EN accuracy + translation | built in |
 
-## 2. Four tiers
+Recommendation: **run Parakeet TDT first (free, already shipped, fastest on the ANE) and
+Whisper large-v3-turbo as the alternative**, let the user pick per session, and keep the
+streaming transcript alongside so the two can be compared.
 
-**Tier 0 — no model at all.** System grammar checker, ITN, VAD, readability, FTS5,
-dictionary, embeddings. Instant, deterministic, free, and they should always run first:
-a deterministic pass cannot hallucinate, and it grounds whatever the LLM does next.
+## 2. The full stack
 
-**Tier 1 — Apple's system models.**
-`FoundationModels` `SystemLanguageModel` [verified], `Translation` [verified],
-`NLTagger` / `NLEmbedding` / `NLContextualEmbedding` [verified], `SoundAnalysis` [verified].
-No download, no setup beyond enabling Apple Intelligence. Roughly 3B parameters
-**[estimate]** — Apple does not publish the figure.
-
-**Tier 2 — a real local LLM, via MLX.** For the tasks where Tier 1 is genuinely mediocre
-(§4). MLX Swift is the Apple-supported route for this; Apple ran a WWDC25 session on
-running local LLMs with MLX
-([session 298](https://developer.apple.com/videos/play/wwdc2025/298/)).
-
-**Tier 3 — task-specific models.** Diarisation, TTS, alignment. Already covered by
-FluidAudio, which we ship anyway.
-
-## 3. Which local LLM
-
-Memory is the binding constraint: 24 GB unified, and roughly 9 GB goes to macOS, the app
-and caches **[estimate]**, leaving about 15 GB.
-
-| Option | Weights (4-bit) | Fits with ASR loaded | Notes |
+| Task | Model | Size (4-bit / as noted) | Runtime |
 |---|---|---|---|
-| Apple `SystemLanguageModel` | ~2 GB | yes | Zero setup; weakest reasoning |
-| Qwen3-8B | ~5 GB | yes | Fast; noticeably behind 14B on nuance |
-| **Qwen3-14B** | **~8.5 GB** | **yes** | Bilingual EN/ZH, strong instruction following — **recommended default** |
-| Gemma 3 12B | ~7 GB | yes | Comparable; weaker Chinese |
-| Qwen3-30B-A3B (MoE, 3B active) | ~17 GB | no | Best quality; needs the ASR released, and is still tight |
-| Llama 3.3 8B | ~5 GB | yes | English-strong, Chinese-weak |
+| Live recognition | Parakeet EOU / Unified (current) | 0.4–1.1 GB | CoreML / ANE |
+| **Batch re-recognition** | **Parakeet TDT v3**, or **Whisper large-v3-turbo** | 0.6–1.6 GB | CoreML / whisper.cpp |
+| Word-level alignment | wav2vec2 phoneme aligner (WhisperX-style) | ~0.4 GB | CoreML / ONNX |
+| Voice activity, ITN | FluidAudio VAD + `TextNormalizer` | tiny | CoreML |
+| Music / applause detection | SoundAnalysis, or a CLAP-style classifier | 0 / ~0.2 GB | CoreML |
+| Diarisation | FluidAudio `OfflineSortformerDiarizer`; pyannote 3.x if converted | 0.3 / ~0.2 GB | CoreML |
+| **Main LLM (default)** | **Qwen3-14B-Instruct** | **~8.5 GB** | MLX |
+| **Main LLM (maximum)** | **Qwen3-30B-A3B** (MoE, 3B active) | **~17 GB** | MLX |
+| Translation EN→ZH | **Hunyuan-MT** class dedicated MT (Tencent won WMT25 EN-ZH with this family); Qwen3 as fallback | 4–8 GB | MLX |
+| Sentence embeddings | Qwen3-Embedding / bge-m3 | 0.3–1.2 GB | MLX |
+| Grammar (deterministic) | `NSSpellChecker.checkGrammarOfString` | 0 | system |
+| Dictionary | `DCSCopyTextDefinition` | 0 | system |
+| POS / lemma / entities | `NLTagger` | 0 | system |
+| Pronunciation scoring | wav2vec2 phoneme model + goodness-of-pronunciation | ~0.4 GB | CoreML |
+| TTS | Kokoro (fast, natural) / Chatterbox or F5-TTS (expressive) | 0.3–1 GB | CoreML or MLX |
+| CEFR / frequency | bundled permissively licensed word lists | < 20 MB | — |
+| Search | SQLite FTS5 | 0 | system |
 
-**Recommendation: Qwen3-14B-Instruct, 4-bit, served through MLX Swift.** It is the largest
-model that coexists comfortably with the recogniser, it is genuinely bilingual (which
-matters because translation goes to Chinese), and MoE-class speed is not needed for
-after-the-fact work.
+Only the models marked **bold** are essential to the quality bar. The rest are either free
+(system), already shipped (FluidAudio), or small.
 
-**Qwen3-30B-A3B as an opt-in "maximum quality" tier** for anyone willing to accept that
-the recogniser is unloaded while studying. The memory maths:
+## 3. Memory, and how to be greedy without swapping
 
-```
-方案 A  Apple ~3B   + ASR      3.1 GB   余 11.9 GB   ✓ 舒适
-方案 B  Qwen3-14B   + ASR      9.6 GB   余  5.4 GB   ✓ 可行
-方案 C  Qwen3-30B   (卸 ASR)  17.5 GB   余 -2.5 GB   ⚠ 必须错峰
-```
-
-The reason C is viable at all is the key structural fact of this design:
-
-> **Live captioning and study never happen at the same moment.** So the ASR model and the
-> LLM do not have to coexist. Release one to load the other — which also means the app's
-> steady-state memory is the *max* of the two, not the sum.
-
-## 4. Where the 3B system model is not good enough
-
-This is the honest answer to "is the model enough". For these tasks, shipping only Tier 1
-would be the mediocre feature:
-
-| Task | Why 3B disappoints |
-|---|---|
-| Grading a summary against a rubric | Needs judgement and consistency; small models flatter everything |
-| Explaining a grammar error | Tends to restate the correction, not the rule |
-| Correcting ASR mis-hearings | Over-eager: invents names, formalises slang, "improves" lines nobody asked to improve |
-| English → Chinese at paragraph level | Fluency and idiom are where small models fall down hardest |
-| Long-context consistency across an episode | Loses track of who said what and which names were established |
-| Free-form conversation practice | Repeats itself, drifts out of character |
-
-Everything else — cloze, glosses, tone checks, short rewrites, classification — Tier 1
-does well, and it does it instantly and silently.
-
-**So the design is not "pick one".** It is: always run Tier 0 first, use Tier 1 by default,
-and escalate to Tier 2 for the tasks above, with the escalation visible in the UI so it is
-never a silent quality difference.
-
-## 5. Where each model runs
+24 GB unified; ~9 GB goes to macOS, the app and caches **[estimate]**, leaving ~15 GB.
 
 ```
-during the episode (must never stutter)
-    ASR  +  VAD  +  ITN                     → cues, timing, audio (kept)
-    no LLM, no diarisation, no analysis
-
-after the episode (background, cancellable)
-    SoundAnalysis   drop music-only cues
-    Diarisation     OfflineSortformerDiarizer over the kept audio
-    Alignment       token timestamps where available
-    Tier 0          grammar check, ITN, tokens, lemmas, POS, frequency, readability
-    Embeddings      sentence vectors for semantic search and topic grouping
-    Tier 1          quick clean-up, cloze, glosses
-    Tier 2          correction, translation, grading, conversation      ← the expensive pass
+监听时:  streaming ASR + VAD + ITN                     ~1.0 GB
+分析时:  batch ASR ~1.6 + LLM 14B ~8.5 + 嵌入 0.5 + 其他  ~11 GB   ✓ 舒适
+最优质:  batch ASR ~1.6 + Qwen3-30B-A3B ~17 + 其他       ~19 GB   ⚠ 需先释放 ASR 与缓存
 ```
 
-Nothing in the second block can touch subtitle latency: it runs when nothing is being
-captioned, and if the user starts listening again the analysis pauses.
+Because the phases never overlap, the app's peak is the **max** of these, not their sum.
+The mechanism is a small **model broker**: one component that knows every model's size,
+loads on demand, evicts by recency, and refuses to load something that would not fit —
+rather than letting each feature load whatever it likes.
 
-## 6. Two gaps with no good local answer
+Rules worth writing down now:
 
-**1. Dependency / syntactic parsing.** `NLTagger` gives part of speech and lemmas, which
-supports tense, clause boundaries, question vs statement, modals and passive patterns. It
-does not give a tree. Options, in order of cost:
+1. Never run batch ASR and the LLM at the same time.
+2. Evict the streaming model whenever listening stops and analysis starts.
+3. Qwen3-30B-A3B is a **mode**, not a default: it requires the "maximum quality" switch,
+   and the app says plainly what it will unload.
+4. Everything above 70B is out of reach at 4-bit (~40 GB) — do not design around it.
 
-1. heuristics over POS tags — no model, covers most of what a learner needs to *see*;
-2. ask the Tier 2 LLM to parse one sentence on demand, in the inspector, where latency does
-   not matter;
-3. convert a small dependency parser (spaCy-class) to CoreML — a real project, worth it
-   only if (1) and (2) prove insufficient.
+## 4. Runtimes this adds
 
-Recommendation: ship (1) and (2), and do not pretend it is a parser.
+Three at most, and ideally two:
 
-**2. Pronunciation scoring.** Word-level *accuracy* comes free: our own recogniser
-transcribes the learner and we diff against the reference, which catches wrong words and
-missing words. What it does **not** measure is pronunciation quality of a correctly
-recognised word — that needs a dedicated goodness-of-pronunciation model, and there is no
-mature on-device option today. Shadowing should therefore present itself as
-*"did you say the right words"*, not as a pronunciation score. Overstating this would be
-exactly the mediocre feature to avoid.
+- **CoreML / ANE** — already used; ASR, VAD, diarisation, alignment, pronunciation, TTS.
+- **MLX Swift** — LLMs, translation, embeddings. The Apple-supported route for local LLMs.
+- **whisper.cpp / WhisperKit** — only if the batch ASR choice lands on Whisper rather than
+  the Parakeet model we already have. Avoid if possible: it is one more thing to build.
 
-## 7. Licensing, because it decides what can ship
+No Python. A shipped app must not depend on a Python environment, which rules out the
+PyTorch-native versions of pyannote and several TTS models unless they are converted.
 
-- **FluidAudio** — Apache 2.0, already shipped, and it covers ASR, VAD, ITN, diarisation
-  and TTS. No new licensing surface.
-- **Apple frameworks** — no licence question, but they require macOS 26+ and, for some
-  features, a one-time system download (translation language packs, premium voices).
-- **MLX and the weights** — MLX itself is MIT. The model licence is per-model: the Qwen
-  family is Apache 2.0, Gemma has its own terms. Weights are **downloaded by the user, not
-  redistributed**, which keeps the obligation on the model, not on us — the same pattern
-  already used for the ASR models.
-- **CEFR / frequency word list** — the one genuinely unresolved item. A bundled list is a
-  redistribution, so it must be permissively licensed. This needs a decision before phase 5.
+## 5. Honest gaps
 
-## 8. What I would build
+**Dependency / syntactic parsing** is still the one soft spot. `NLTagger` gives POS and
+lemmas; a real tree needs a converted parser. With the quality-first brief, the options
+are now: convert a small dependency parser to CoreML/ONNX (a real project, a few days), or
+ask the main LLM to parse a single sentence on demand in the inspector. Recommendation:
+**do the LLM parse first**, because it also *explains* the sentence, which is what a
+learner actually wants, and revisit a dedicated parser only if it proves insufficient.
 
-1. **Always**: Tier 0 passes. They are instant, deterministic, and they make the archive
-   trustworthy.
-2. **Default**: Tier 1 for everything it does well.
-3. **Ship a Tier 2 option**: Qwen3-14B via MLX, downloaded on first use with an explicit
-   prompt showing the size. It is what makes correction, translation, grading and
-   conversation actually good.
-4. **Escalate explicitly**: the UI says which tier produced a result, and any line can be
-   re-run at the higher tier.
-5. **Measure before trusting**: for correction and translation, run both tiers on the same
-   episode and compare with the raw transcript before deciding which is the default.
+**Pronunciation scoring** moves from "gap" to "feasible but unproven": a wav2vec2 phoneme
+model plus GOP scoring is a known technique, but I have not measured it on this machine.
+Treat it as a phase-6 spike with a go/no-go, not a promise.
+
+**Streaming translation** stays out of scope: translation happens after the episode, per
+paragraph. Live translated subtitles would reintroduce exactly the latency problem we
+spent this whole session removing.
+
+## 6. Licensing
+
+- **FluidAudio** (Apache 2.0) already covers ASR, VAD, ITN, diarisation and several TTS
+  engines. No new surface.
+- **MLX** is MIT; **model weights carry their own licences** — Qwen is Apache 2.0, Gemma
+  and Hunyuan have their own terms. Weights are **downloaded by the user, never
+  redistributed**, which keeps the obligation with the model rather than with the app —
+  the same pattern already used for the ASR models.
+- **Word lists** remain the one unresolved redistribution question, and must be settled
+  before the statistics phase.
+
+## 7. What this changes about the plan
+
+| Phase | Was | Now |
+|---|---|---|
+| 0 | persistence, history, export | unchanged |
+| 1 | audio retention for replay | **audio retention is also the input to batch ASR — promote it** |
+| 2 | text clean-up, LLM correction | **batch re-recognition first**; the LLM then corrects far less, and only where the two passes disagree |
+| 3 | reader, dictionary, notes | unchanged |
+| 4 | replay, slow-down, karaoke | word timings now come from the batch pass |
+| 5 | statistics, SRS, Anki | unchanged, plus embeddings for semantic search |
+| 6 | speaking: shadowing, then conversation | add the pronunciation-scoring spike |
+| 7 | writing: summary, conversation | grade with the maximum-quality LLM, not the default one |
+
+The ordering principle: **make the transcript correct before building anything on top of
+it.** Every later feature inherits the transcription quality.
