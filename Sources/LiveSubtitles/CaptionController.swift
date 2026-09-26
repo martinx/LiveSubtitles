@@ -25,6 +25,12 @@ final class CaptionController {
 
     private lazy var settingsWindow = SettingsWindow()
 
+    /// Fired whenever capture starts or stops, so the menu bar and Dock can show it.
+    var onListeningChanged: ((Bool) -> Void)?
+    private var isListening = false {
+        didSet { if isListening != oldValue { onListeningChanged?(isListening) } }
+    }
+
     init() {
         let settings = Settings()
         self.settings = settings
@@ -118,6 +124,7 @@ final class CaptionController {
             let audio = capture.makeAudioStream()
             let updates = try await transcriber.updates(from: audio)
             try await capture.start()
+            isListening = true
 
             // Nothing to show while listening quietly; the panel stays empty until
             // the first words arrive.
@@ -146,10 +153,12 @@ final class CaptionController {
             }
         } catch {
             captions.setStatus("Error: \(error.localizedDescription)")
+            isListening = false
         }
     }
 
     private func teardown() async {
+        isListening = false
         consumer?.cancel()
         consumer = nil
         await capture?.stop()

@@ -106,7 +106,7 @@ rather have the lowest possible latency.
 | End of sentence after | How much silence closes a subtitle line. Needs **Apply & Restart Engine**. |
 | **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. The last line stays readable during the pause; the break is applied when speech resumes. |
 | **Keep captions on screen** | Stop the overlay fading out during quiet stretches. |
-| **Show Dock icon** | Off by default: the app is a menu-bar accessory, so it never takes activation away from the video. Turn on for a Dock icon and Cmd-Tab entry. |
+| **Show Dock icon** | Off by default: the app is a menu-bar accessory, so it never takes activation away from the video. Turn on for a Dock icon, a Cmd-Tab entry, a full app menu, and a **LIVE** badge on the Dock tile while capturing. |
 | **Drag to reposition** | The overlay is click-through by default. Switch this on to grab it and put it where you want; the spot is remembered across launches. **While it is on the overlay captures the mouse**, so clicks in its area no longer reach the video — turn it back off once it is where you want it. **Reset overlay position** goes back to the *Distance from bottom* setting. |
 | Font size / Width / Background / Distance from bottom | Apply immediately |
 | Max lines | 1–5. 1 = current sentence only, 2 = previous line above it, 3+ gives the current sentence two lines and keeps more history. |
