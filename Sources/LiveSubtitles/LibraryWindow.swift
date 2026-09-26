@@ -29,7 +29,7 @@ struct LibraryView: View {
             sidebar
         } content: {
             listColumn
-                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 420)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 290, max: 400)
         } detail: {
             VStack(spacing: 0) {
                 toolbar
@@ -141,7 +141,7 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 235, ideal: 265, max: 340)
+        .navigationSplitViewColumnWidth(min: 270, ideal: 300, max: 400)
         // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
         // sidebar is collapsed and looks like a stray button. The window has its own
         // controls; this one is not wanted.
@@ -1260,9 +1260,17 @@ private struct ParagraphTranslationHost: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: model.translationRequestID) { _, _ in
-                configuration = TranslationSession.Configuration(
-                    source: Locale.Language(identifier: "en"),
-                    target: Locale.Language(identifier: "zh-Hans"))
+                // `.translationTask` re-runs when the configuration *changes*, and a fresh
+                // configuration with the same languages compares equal to the old one — so
+                // the second press of Translate did nothing. Clear it first, then set it on
+                // the next turn of the run loop, which is a change by any measure.
+                configuration = nil
+                Task { @MainActor in
+                    await Task.yield()
+                    configuration = TranslationSession.Configuration(
+                        source: Locale.Language(identifier: "en"),
+                        target: Locale.Language(identifier: "zh-Hans"))
+                }
             }
             .translationTask(configuration) { session in
                 // Paragraphs when the toggle is on, plus any word looked up on its own.
@@ -1341,7 +1349,7 @@ final class LibraryWindow {
             created.isReleasedWhenClosed = false
             // Wide enough for three columns at their own minimums; narrower and the sidebar
             // is squeezed until every label truncates.
-            created.setContentSize(NSSize(width: 1360, height: 780))
+            created.setContentSize(NSSize(width: 1440, height: 820))
             WindowPlacement.center(created)
             window = created
         }

@@ -21,11 +21,13 @@ import Foundation
 enum OnlineDictionaryError: LocalizedError {
     case notFound
     case unreachable
+    case blocked
 
     var errorDescription: String? {
         switch self {
         case .notFound:    return "No entry found online."
         case .unreachable: return "Couldn't reach Cambridge. Check the connection."
+        case .blocked:     return "Cambridge is refusing requests from this Mac for now. Try again later."
         }
     }
 }
@@ -56,8 +58,12 @@ enum OnlineDictionary {
                 try? await Task.sleep(for: .milliseconds(400))
             }
         }
-        if let http = response as? HTTPURLResponse, http.statusCode == 404 {
-            throw OnlineDictionaryError.notFound
+        if let http = response as? HTTPURLResponse {
+            switch http.statusCode {
+            case 404:              throw OnlineDictionaryError.notFound
+            case 403, 429:         throw OnlineDictionaryError.blocked
+            default:               break
+            }
         }
         guard let html = String(data: data, encoding: .utf8) else {
             throw OnlineDictionaryError.notFound
@@ -70,27 +76,69 @@ enum OnlineDictionary {
 
     // MARK: - Reading the page
 
-    private static func parse(_ html: String, headword: String) -> DictionaryEntry {
-        let definitions = captures(of: #"<div class="def ddef_d db"[^>]*>(.*?)</div>"#, in: html)
-        let examples = captures(of: #"<span class="examp dexamp"[^>]*>(.*?)</span>"#, in: html)
-        let parts = captures(of: #"<span class="pos dpos"[^>]*>(.*?)</span>"#, in: html)
+    static func parse(_ html: String, headword: String) -> DictionaryEntry {
         let phonetics = captures(of: #"<span class="pron dpron"[^>]*>(.*?)</span>"#, in: html)
+        let partsOfSpeech = captures(of: #"<span class="pos dpos"[^>]*>(.*?)</span>"#, in: html)
+            .map { trim($0).lowercased() }
 
-        // Cambridge nests an example inside the definition block; pairing by order is right
-        // often enough, and a missing example costs nothing.
+        // Walk the page one definition block at a time. Pairing all the definitions with all
+        // the examples by index — which is what this did first — mismatches them as soon as a
+        // sense has two examples or none, and a definition shown with someone else's example
+        // is worse than no example.
         var senses: [DictionaryEntry.Sense] = []
-        for (index, definition) in definitions.prefix(4).enumerated() {
-            senses.append(DictionaryEntry.Sense(
-                definition: trim(definition),
-                example: index < examples.count ? trim(examples[index]) : nil,
-                label: nil))
+        for (index, block) in definitionBlocks(in: html).enumerated() {
+            let definitions = captures(of: #"<div class="def ddef_d db"[^>]*>(.*?)</div>"#, in: block)
+                .map(trim)
+                .filter { !$0.isEmpty }
+            let examples = captures(of: #"<span class="examp dexamp"[^>]*>(.*?)</span>"#, in: block)
+                .map(trim)
+                .filter { !$0.isEmpty }
+
+            for definition in definitions {
+                senses.append(DictionaryEntry.Sense(
+                    definition: definition,
+                    example: examples.first,
+                    label: nil))
+            }
+            // A block can hold phrases rather than a numbered sense; keep them as senses too.
+            if definitions.isEmpty, let first = examples.first {
+                senses.append(DictionaryEntry.Sense(definition: first, example: nil, label: nil))
+            }
+            if senses.count >= 8 { break }
+            _ = index
         }
+
+        // Cambridge lists several dictionaries per page; take the part of speech that belongs
+        // to the first definition block rather than the first one on the page.
+        let lead = definitionBlocks(in: html).first ?? html
+        let partOfSpeech = captures(of: #"<span class="pos dpos"[^>]*>(.*?)</span>"#, in: lead)
+            .first.map { trim($0).lowercased() } ?? partsOfSpeech.first
 
         return DictionaryEntry(headword: headword,
                                phonetics: phonetics.first.map(trim),
-                               partOfSpeech: parts.first.map { trim($0).lowercased() },
+                               partOfSpeech: partOfSpeech,
                                senses: senses,
                                phrases: [])
+    }
+
+    /// Splits the page at each definition block, so a definition can be read together with the
+    /// examples that follow it rather than with every example on the page.
+    private static func definitionBlocks(in html: String) -> [String] {
+        let marker = "def-block ddef_block" 
+        guard html.contains(marker) else { return [html] }
+        var blocks: [String] = []
+        var rest = Substring(html)
+        while let start = rest.range(of: marker) {
+            let tail = rest[start.lowerBound...]
+            if let next = tail.dropFirst(marker.count).range(of: marker) {
+                blocks.append(String(tail[..<next.lowerBound]))
+                rest = tail[next.lowerBound...]
+            } else {
+                blocks.append(String(tail))
+                break
+            }
+        }
+        return blocks
     }
 
     private static func captures(of pattern: String, in text: String) -> [String] {
