@@ -13,7 +13,8 @@
 import Foundation
 
 public actor HistoryStore {
-    private let connection: SQLiteConnection
+    /// Internal rather than private: the read queries live in Queries.swift.
+    let connection: SQLiteConnection
 
     public init(url: URL) throws {
         connection = try SQLiteConnection(path: url.path)

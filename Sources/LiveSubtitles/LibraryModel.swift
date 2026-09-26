@@ -11,10 +11,46 @@ import Combine
 import LiveSubtitlesKit
 import SwiftUI
 
+/// The sidebar's destinations, in the order the design put them.
+enum LibrarySection: String, CaseIterable, Identifiable {
+    case sessions, collections, notebook, favourites, vocabulary, writing, statistics
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .sessions:    return "Sessions"
+        case .collections: return "Collections"
+        case .notebook:    return "Notebook"
+        case .favourites:  return "Favourites"
+        case .vocabulary:  return "Vocabulary"
+        case .writing:     return "Writing"
+        case .statistics:  return "Statistics"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .sessions:    return "rectangle.stack"
+        case .collections: return "folder"
+        case .notebook:    return "note.text"
+        case .favourites:  return "star"
+        case .vocabulary:  return "textformat.abc"
+        case .writing:     return "square.and.pencil"
+        case .statistics:  return "chart.bar"
+        }
+    }
+}
+
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var sessions: [Session] = []
-    @Published var selectedSessionID: String?
+    @Published var selectedSessionID: String? {
+        didSet {
+            guard selectedSessionID != oldValue else { return }
+            Task { await self.loadSelected() }
+        }
+    }
     @Published private(set) var cues: [Cue] = []
     @Published private(set) var notes: [Note] = []
 
@@ -24,6 +60,18 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var totalCues = 0
     @Published var errorMessage: String?
     @Published var selectedCueID: Int64?
+    @Published var section: LibrarySection = .sessions
+
+    // The other sections' contents.
+    @Published private(set) var notebook: [NoteWithSession] = []
+    @Published private(set) var favourites: [NoteWithSession] = []
+    @Published private(set) var vocabulary: [VocabularyEntry] = []
+    @Published private(set) var statistics = LibraryStatistics()
+
+    // Inspector.
+    @Published private(set) var inspectedWord: String?
+    @Published private(set) var definition: String?
+    @Published private(set) var occurrences: [SearchHit] = []
 
     private var store: HistoryStore?
     private var searchTask: Task<Void, Never>?
@@ -39,6 +87,20 @@ final class LibraryModel: ObservableObject {
     /// Cues the reader shows: the selected session's, or the cross-session search results.
     var readerCues: [Cue] {
         isSearching ? hits.map(\.cue) : cues
+    }
+
+    /// The reader's paragraphs; a gap in the audio starts a new block.
+    var paragraphs: [[Cue]] { Paragraphs.group(readerCues) }
+
+    var selectedCue: Cue? {
+        guard let id = selectedCueID else { return nil }
+        return readerCues.first { $0.id == id }
+    }
+
+    /// Words in the selected line, for the inspector's chips.
+    var selectedWords: [String] {
+        guard let cue = selectedCue else { return [] }
+        return DictionaryLookup.words(in: cue.text)
     }
 
     var notesByCue: [Int64: [Note]] {
@@ -60,22 +122,51 @@ final class LibraryModel: ObservableObject {
         do {
             sessions = try await store.sessions()
             totalCues = try await store.cueCount()
+            notebook = try await store.notes()
+            favourites = try await store.notes(kind: .favourite)
+            vocabulary = try await store.vocabulary()
+            statistics = try await store.statistics()
             // Prefer a session that actually has something in it, so the window does not
             // open on the empty one a just-started run leaves behind.
-            if selectedSessionID == nil {
-                selectedSessionID = sessions.first(where: { $0.cueCount > 0 })?.id ?? sessions.first?.id
+            let target = selectedSessionID
+                ?? sessions.first(where: { $0.cueCount > 0 })?.id
+                ?? sessions.first?.id
+            if selectedSessionID != target {
+                selectedSessionID = target      // didSet loads it
+            } else if let id = target {
+                try await load(id)
             }
-            if let id = selectedSessionID { try await load(id) }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Looks a word up and finds every other line it appears in.
+    func inspect(_ word: String) async {
+        let lemma = DictionaryLookup.lemma(of: word)
+        inspectedWord = lemma
+        definition = DictionaryLookup.entry(for: lemma) ?? DictionaryLookup.entry(for: word)
+        guard let store else { occurrences = []; return }
+        occurrences = (try? await store.occurrences(of: lemma, excludingCue: selectedCueID)) ?? []
+    }
+
+    func clearInspection() {
+        inspectedWord = nil
+        definition = nil
+        occurrences = []
+    }
+
+    /// The list binds straight to `selectedSessionID`; this is what reacting to it means.
+    func loadSelected() async {
+        selectedCueID = nil
+        clearInspection()
+        guard let id = selectedSessionID else { cues = []; notes = []; return }
+        try? await load(id)
+    }
+
     func select(_ id: String?) async {
         selectedSessionID = id
-        selectedCueID = nil
-        guard let id else { cues = []; notes = []; return }
-        try? await load(id)
+        await loadSelected()
     }
 
     private func load(_ id: String) async throws {
@@ -103,12 +194,28 @@ final class LibraryModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
         try? await store.addNote(sessionID: sessionID, cueID: cueID, kind: kind, text: trimmed)
         try? await load(sessionID)
+        await refreshDerived()
+    }
+
+    /// Saves the inspected word straight into the vocabulary.
+    func saveInspectedWord() async {
+        guard let word = inspectedWord else { return }
+        await addNote(cueID: selectedCueID, kind: .word, text: word)
     }
 
     func deleteNote(_ id: Int64) async {
         guard let store, let sessionID = selectedSessionID else { return }
         try? await store.deleteNote(id)
         try? await load(sessionID)
+        await refreshDerived()
+    }
+
+    private func refreshDerived() async {
+        guard let store else { return }
+        notebook = (try? await store.notes()) ?? []
+        favourites = (try? await store.notes(kind: .favourite)) ?? []
+        vocabulary = (try? await store.vocabulary()) ?? []
+        statistics = (try? await store.statistics()) ?? LibraryStatistics()
     }
 
     func export(_ format: ExportFormat, sessionID: String) {

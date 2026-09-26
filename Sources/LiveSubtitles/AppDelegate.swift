@@ -183,8 +183,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         stateItem.image = NSImage(systemSymbolName: controller.state.symbolName, accessibilityDescription: nil)
         stateItem.isEnabled = false
         menu.addItem(stateItem)
-        menu.addItem(.separator())
 
+        // Section headers rather than bare separators: the current menu style groups
+        // commands under a label, which also makes a long menu scannable.
+        menu.addItem(.sectionHeader(title: "Listening"))
         menu.addItem(action("Start Listening", #selector(startListening),
                             shortcut: controller.settings.startShortcut,
                             symbol: "play.fill",
@@ -197,22 +199,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             shortcut: controller.settings.stopShortcut,
                             symbol: "stop.fill",
                             enabled: controller.state != .stopped))
-        menu.addItem(action("Restart Engine", #selector(restartEngine), symbol: "arrow.clockwise"))
-        menu.addItem(.separator())
+        menu.addItem(action("Reload Engine", #selector(restartEngine), symbol: "arrow.clockwise"))
 
-        menu.addItem(action("Clear Captions", #selector(clearCaptions), symbol: "eraser"))
+        menu.addItem(.sectionHeader(title: "Study"))
+        menu.addItem(action("Library…", #selector(openLibrary), key: "l", symbol: "books.vertical"))
+        menu.addItem(action("How to Use", #selector(showWelcome), symbol: "questionmark.circle"))
+
+        menu.addItem(.sectionHeader(title: "Transcript"))
         menu.addItem(action("Export Transcript…", #selector(exportTranscript), key: "e",
                             symbol: "square.and.arrow.down"))
         menu.addItem(action("Copy Transcript", #selector(copyTranscript), symbol: "doc.on.doc"))
-        menu.addItem(.separator())
+        menu.addItem(action("Clear Captions", #selector(clearCaptions), symbol: "eraser"))
 
         addUpdateItems(to: menu)
 
-        menu.addItem(action("Library…", #selector(openLibrary), key: "l", symbol: "books.vertical"))
+        menu.addItem(.sectionHeader(title: "App"))
         menu.addItem(action("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
-        menu.addItem(action("How to Use", #selector(showWelcome), symbol: "questionmark.circle"))
         menu.addItem(action("About \(AppInfo.name)", #selector(showAbout), symbol: "info.circle"))
-        menu.addItem(.separator())
         menu.addItem(appAction("Quit \(AppInfo.name)", #selector(NSApplication.terminate(_:)), key: "q",
                                symbol: "power"))
 
@@ -226,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func addUpdateItems(to menu: NSMenu) {
         guard let checker = updateChecker else { return }
 
+        menu.addItem(.sectionHeader(title: "Updates"))
         switch checker.status {
         case .available(let release):
             menu.addItem(action("Update to \(release.version)…", #selector(offerUpdate),
@@ -237,7 +241,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(action("Check for Updates…", #selector(checkForUpdates),
                                 symbol: "arrow.triangle.2.circlepath"))
         }
-        menu.addItem(.separator())
     }
 
     /// An item whose action this delegate implements.
