@@ -148,7 +148,7 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 270, ideal: 300, max: 400)
+        .navigationSplitViewColumnWidth(min: 324, ideal: 360, max: 480)
         // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
         // sidebar is collapsed and looks like a stray button. The window has its own
         // controls; this one is not wanted.
@@ -1370,7 +1370,7 @@ final class LibraryWindow {
             created.isReleasedWhenClosed = false
             // Wide enough for three columns at their own minimums; narrower and the sidebar
             // is squeezed until every label truncates.
-            created.setContentSize(NSSize(width: 1440, height: 820))
+            created.setContentSize(NSSize(width: 1520, height: 820))
             WindowPlacement.center(created)
             window = created
         }
