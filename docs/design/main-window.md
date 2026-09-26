@@ -17,6 +17,9 @@ with it afterwards, for someone using the app to learn English.
 | Translation | Chinese, **by paragraph**, optional | A paragraph block under the paragraph, not a line under each line. Word-level is handled by selection instead. |
 | Working unit | **One episode at a time** | Sessions are the unit; collections/topics are created freely on top. |
 | Skills | **All four** — listen, speak, read, write | Writing includes conversation and summary with graded correction (§9.4). |
+| Retention | **Nothing is ever deleted automatically** — not text, not audio | Capacity was the worry; measurement says an episode is ~7 MB, so it was not a real constraint (§5). Manual deletion only. |
+| Session naming | Free-form title, editable | Default is auto-generated from the source and date; season/episode/series are optional fields, and collections group sessions any way you like. |
+| Code layout | **A library module, in this repo, extractable later** | The overlay must not depend on study code (§13). |
 
 ## 2. What the app already has
 
@@ -82,13 +85,24 @@ provided the writer never applies backpressure:
 - implementation note: a 16 kHz mono AAC encoder **rejects a 64 kbps request**
   (`AudioConverterSetProperty` fails); let the encoder choose, which lands near 22 kbps.
 
-### Retention policy
+### Retention policy — and why the capacity worry was unfounded
 
-- Audio is kept for the **most recent episode only** by default; starting a new session
-  purges the previous one's audio unless it has been pinned.
-- Text is kept indefinitely — it is tiny.
-- A per-session **"forget the audio"** control, and a single global retention setting
-  (keep last N sessions / N days).
+Measured: **159 KB/minute**, so a 45-minute episode is **7.0 MB**.
+
+| Usage | Per month | Per year | 10 years |
+|---|---|---|---|
+| 1 episode/day | 0.2 GB | 2.6 GB | 25.7 GB |
+| 2 episodes/day | 0.4 GB | 5.1 GB | 51.3 GB |
+| 3 episodes/day | 0.6 GB | 7.7 GB | 77.0 GB |
+
+Keeping every episode's audio for a decade costs less than a handful of films. So:
+
+- **Nothing is deleted automatically** — not text, not audio. Deletion is always a
+  deliberate action, per session or from a storage panel that shows what each session
+  costs.
+- If the disk gets tight, the app **warns and offers** to prune; it never prunes for you.
+- The one thing that is bounded is memory, not disk — see the model broker in the
+  [model stack](model-inventory.md).
 
 ## 6. Storage
 
@@ -119,6 +133,30 @@ cues_fts USING fts5(raw_text, clean_text, corrected_text,
 `raw_text` is never overwritten: it is the only ground truth. Every derived column is
 recomputable, and every analysis stage is versioned so a better model later is a
 migration rather than a rewrite.
+
+### Measured capacity
+
+A synthetic database at one year of daily watching — **260 episodes, 130,000 cues,
+1,300,000 word links** — was built and queried:
+
+| | |
+|---|---|
+| Database size | **91 MB** |
+| Build time | 4.3 s |
+| Full-text search across all history | **0.57 ms** |
+| Every occurrence of a word (concordance) | 0.21 ms |
+| One session's cues | 0.21 ms |
+| Word-frequency aggregation | 0.91 ms |
+
+SQLite is nowhere near being the constraint; ten years extrapolates to about 900 MB with
+the same latencies. **One query did stand out**: computing a session's share of
+above-level vocabulary took **153 ms**, because it filtered on a non-indexed column across
+1.3 M rows — an order of magnitude worse at ten years' scale. Two consequences for the
+schema:
+
+1. index `words(cefr)` and `cue_words(word_id, cue_id)`;
+2. do not recompute per-session statistics on the fly — materialise them into an
+   `analyses` row when the session is processed, which the pipeline already does.
 
 ## 7. Analysis pipeline
 
@@ -189,7 +227,19 @@ every sentence containing it; mark known/unknown as you go.
   missed or mangled.
 - **Voice conversation**: microphone → recognition → local LLM → TTS, entirely on-device.
   Scenarios are grounded in the episode's vocabulary, so practice reuses what was just
-  watched. Needs microphone permission (a new prompt, unrelated to Screen Recording).
+  watched.
+
+**Microphone permission, deliberately:**
+
+- **Never asked at launch.** It is requested the first time the learner actually presses
+  *Record* or starts a voice session, so the prompt arrives with obvious context.
+- **Explained before the system prompt**, in-app: what is recorded, that it stays on this
+  Mac, and that the recording is discarded after scoring unless *keep my recording* is on.
+- The denial path is a first-class state, not an error: the window shows what is
+  unavailable and links to System Settings. Everything else keeps working.
+- Shadowing recordings are **ephemeral by default**; keeping one is a per-exercise choice,
+  and they live beside the session so they can be deleted with it.
+- `NSMicrophoneUsageDescription` says what is actually true, in one sentence.
 
 ### 9.4 Write
 - **Summary / retell**: after an episode, the user writes a summary. The LLM grades it on
@@ -237,14 +287,56 @@ every sentence containing it; mark known/unknown as you go.
 | 6 | Speaking: shadowing, then voice conversation | Highest-value addition for production |
 | 7 | Writing: summary grading, guided conversation | Completes the four skills |
 
-## 12. Still open
+## 12. Code layout — one repo or two?
 
-1. **Retention default** — purging the previous episode's audio when a new session starts
-   is the capacity-safe choice, but it means you cannot go back to last week's episode and
-   replay it. Pin-per-session, or keep the last N?
-2. **Microphone** — shadowing and voice conversation add a second permission prompt. Accept,
-   or keep speaking features behind an explicit opt-in in Settings?
-3. **Speaker diarization** — worth the extra model and processing per session, or noise for
-   the shows you watch?
-4. **Word list for CEFR bands** — needs a permissively licensed frequency list bundled as a
-   resource. This is a licensing decision, not a technical one.
+The instinct is right: the study features must not be able to destabilise the overlay that
+already works. But a second repository is not what buys that.
+
+**What actually buys it** is a module boundary:
+
+```
+LiveSubtitles/                      this repo
+├── Sources/LiveSubtitles/          the app: overlay + study window UI   (AppKit/SwiftUI)
+└── Packages/LiveSubtitlesKit/      no UI, no AppKit — everything else
+    ├── Storage/                    SQLite, migrations, FTS
+    ├── Models/                     sessions, cues, notes, vocab
+    ├── Pipeline/                   clean, re-recognise, correct, translate, analyse
+    ├── ModelBroker/                load/evict, memory budget
+    └── Tests/
+```
+
+- The overlay's code path imports only what it already uses; nothing in the study window
+  is reachable from it.
+- The kit is an ordinary SwiftPM package, so **it already has its own module, its own
+  tests, and its own dependency list**.
+- Its API can be tested without launching the app, which is the real reason to separate it.
+
+**Why not a second repository yet.** A separate repo adds a clone, a second CI setup, and
+version choreography for every change that touches both sides — for a single developer,
+that is friction on every commit in exchange for isolation the module boundary already
+provides. It also front-loads a decision we cannot make well yet: the API will not settle
+until phases 1–3 exist.
+
+**And it costs nothing to defer**, because the package is already a package. Extracting it
+later is: create the repo, move `Packages/LiveSubtitlesKit`, replace `.package(path:)` with
+`.package(url:from:)`. **No API change, no code change.**
+
+Extract when one of these becomes true:
+
+1. a second consumer appears — an iOS app, a command-line batch transcriber, anything;
+2. the kit's release cadence genuinely diverges from the app's;
+3. outside contributors want to work on the kit without the app.
+
+Until then, the boundary is the deliverable; the repository is ceremony.
+
+## 13. Still open
+
+1. **CEFR / frequency word list** — a bundled list is a redistribution, so it must be
+   permissively licensed. This is a licensing decision, not a technical one, and it blocks
+   only the statistics phase.
+2. **Batch recogniser default** — Parakeet TDT (already shipped, fastest, English-tuned) or
+   Whisper large-v3-turbo (more robust across accents and music, adds a runtime)? Worth
+   measuring both on one episode before choosing.
+3. **Qwen3-30B-A3B as a selectable maximum** — it needs the streaming model unloaded. Is
+   that trade acceptable, or should 14B be the ceiling?
+4. **Diarisation value** — worth the pass on every episode, or only on request?
