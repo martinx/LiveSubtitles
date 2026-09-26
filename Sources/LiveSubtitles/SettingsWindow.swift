@@ -55,8 +55,8 @@ struct SettingsView: View {
             HStack {
                 Button("Reset overlay position", action: settings.resetPosition)
                 Text(settings.draggable
-                     ? "Drag the caption where you want it — the spot is remembered."
-                     : "Turn on dragging to move the caption, then reset here.")
+                     ? "Drag the caption into place, then turn this off so it stops capturing clicks."
+                     : "Turn on to move the caption; the spot is remembered.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import CoreGraphics
 
 final class Settings: ObservableObject {
     private enum Key {
@@ -51,9 +52,21 @@ final class Settings: ObservableObject {
 
     // MARK: - Overlay position
 
+    /// True once the overlay has been dragged somewhere. Published, because it
+    /// changes the layout; the coordinates themselves are not, so recording a drop
+    /// does not trigger three separate re-layouts.
     @Published var hasCustomPosition: Bool { didSet { defaults.set(hasCustomPosition, forKey: Key.hasCustomPosition) } }
-    @Published var panelX: Double { didSet { defaults.set(panelX, forKey: Key.panelX) } }
-    @Published var panelY: Double { didSet { defaults.set(panelY, forKey: Key.panelY) } }
+    private(set) var panelX: Double
+    private(set) var panelY: Double
+
+    /// Record where the viewer dropped the overlay.
+    func setPanelOrigin(_ origin: CGPoint) {
+        panelX = Double(origin.x)
+        panelY = Double(origin.y)
+        defaults.set(panelX, forKey: Key.panelX)
+        defaults.set(panelY, forKey: Key.panelY)
+        hasCustomPosition = true
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -90,5 +103,7 @@ final class Settings: ObservableObject {
     /// Forget the dragged position and go back to the configured bottom-centre spot.
     func resetPosition() {
         hasCustomPosition = false
+        defaults.removeObject(forKey: Key.panelX)
+        defaults.removeObject(forKey: Key.panelY)
     }
 }
