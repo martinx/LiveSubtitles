@@ -26,7 +26,7 @@ struct LibraryView: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        translationHost(NavigationSplitView {
+        NavigationSplitView {
             sidebar
         } content: {
             listColumn
@@ -39,7 +39,10 @@ struct LibraryView: View {
                 Divider()
                 statusBar
             }
-        })
+        }
+        // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
+        // sidebar is collapsed and reads as a stray button. The window has its own controls.
+        .toolbar(removing: .sidebarToggle)
         .frame(minWidth: 1040, minHeight: 600)
         // ⌘K. A hidden button is the dependable way to claim a shortcut in SwiftUI; the
         // palette then owns the keyboard while it is open.
@@ -85,15 +88,6 @@ struct LibraryView: View {
         }
     }
 
-    @ViewBuilder
-    private func translationHost<V: View>(_ content: V) -> some View {
-        if #available(macOS 15.0, *) {
-            content.modifier(ParagraphTranslationHost(model: model))
-        } else {
-            content
-        }
-    }
-
     // MARK: - Sidebar
 
     /// Navigation: the whole archive, then a folder tree of any depth, then the study
@@ -105,6 +99,11 @@ struct LibraryView: View {
                 sidebarRow("All Sessions", symbol: "rectangle.stack", tag: .allSessions)
                     .contextMenu {
                         Button("New Folder…") { folderPrompt = FolderPrompt(mode: .new(nil)) }
+                    }
+                    // Dropping here unfiles whatever was dragged.
+                    .dropDestination(for: String.self) { tokens, _ in
+                        Task { await model.handleDrop(tokens, onto: nil) }
+                        return true
                     }
 
                 OutlineGroup(model.folderTree, children: \.subfolders) { node in
@@ -119,6 +118,16 @@ struct LibraryView: View {
                     .badge(node.totalSessions)
                     .tag(LibraryTarget.folder(node.folder.id))
                     .contextMenu { folderMenu(node.folder) }
+                    // A top-level folder is a peer of All Sessions and belongs on the same x.
+                    // The outline indents its first level too, so pull that one level back.
+                    .listRowInsets(EdgeInsets(top: 2, leading: -14, bottom: 2, trailing: 8))
+                    // Dragging a folder onto another nests it; dragging a session files it.
+                    // The moveFolder guard refuses to put a folder inside its own descendant.
+                    .draggable(DragToken.folder(node.folder.id))
+                    .dropDestination(for: String.self) { tokens, _ in
+                        Task { await model.handleDrop(tokens, onto: node.folder.id) }
+                        return true
+                    }
                 }
 
                 // Always present, whether or not there are folders yet: a folder tree with no
@@ -148,11 +157,10 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 324, ideal: 360, max: 480)
-        // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
-        // sidebar is collapsed and looks like a stray button. The window has its own
-        // controls; this one is not wanted.
-        .toolbar(removing: .sidebarToggle)
+        // Last on the column, and with nothing after it: a toolbar modifier placed here
+        // stopped the width from being applied at all, and the sidebar sat at its default
+        // 192pt however large the window was.
+        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 360)
         .sheet(item: $folderPrompt) { prompt in
             FolderPromptSheet(prompt: prompt) { name in
                 switch prompt.mode {
@@ -226,6 +234,7 @@ struct LibraryView: View {
             ForEach(model.listedSessions) { session in
                 SessionRow(session: session)
                     .tag(session.id)
+                    .draggable(DragToken.session(session.id))
                     .contextMenu { sessionMenu(session) }
             }
             if model.listedSessions.isEmpty {
@@ -587,7 +596,20 @@ struct LibraryView: View {
     }
 
     /// One quiet line of help, where the old inspector's bulk used to be.
+    @ViewBuilder
     private var statusBar: some View {
+        if #available(macOS 15.0, *) {
+            statusBarBody
+                // A new identity per request: a view that has just appeared always runs its
+                // translationTask, which is the only reliable way to start one again.
+                .id(model.translationRequestID)
+                .modifier(OneShotTranslation(model: model))
+        } else {
+            statusBarBody
+        }
+    }
+
+    private var statusBarBody: some View {
         HStack(spacing: 10) {
             Text("Double-click a word for its meaning · right-click for more")
                 .font(.caption).foregroundStyle(.secondary)
@@ -1269,31 +1291,30 @@ private struct MarkdownText: View {
 }
 
 @available(macOS 15.0, *)
-private struct ParagraphTranslationHost: ViewModifier {
+/// Runs one translation per request.
+///
+/// The parent hands this view a new identity whenever a request arrives, so SwiftUI tears the
+/// old one down and builds a new one — and a view that has just appeared always runs its
+/// `translationTask`. Two earlier designs failed here for the same reason: both tried to make
+/// an *existing* task re-run, and `.translationTask` only restarts when its configuration
+/// changes, while a configuration naming the same two languages compares equal to the last.
+/// The trace of a three-press toggle showed the third press setting the configuration and
+/// nothing starting; changing the view's identity removes the question.
+@available(macOS 15.0, *)
+private struct OneShotTranslation: ViewModifier {
     @ObservedObject var model: LibraryModel
     @State private var configuration: TranslationSession.Configuration?
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: model.translationRequestID) { _, _ in
-                // `.translationTask` re-runs when the configuration *changes*, and a fresh
-                // configuration with the same languages compares equal to the old one — so
-                // the second press of Translate did nothing. Clear it first, then set it on
-                // the next turn of the run loop, which is a change by any measure.
-                configuration = nil
-                Task { @MainActor in
-                    // A yield is not enough: SwiftUI coalesces both writes into one render
-                    // pass and sees no change at all. A short sleep guarantees two.
-                    try? await Task.sleep(for: .milliseconds(40))
-                    configuration = TranslationSession.Configuration(
-                        source: Locale.Language(identifier: "en"),
-                        target: Locale.Language(identifier: "zh-Hans"))
-                }
+            .onAppear {
+                guard model.hasPendingTranslation else { return }
+                configuration = TranslationSession.Configuration(
+                    source: Locale.Language(identifier: "en"),
+                    target: Locale.Language(identifier: "zh-Hans"))
             }
             .translationTask(configuration) { session in
-                // Paragraphs when the toggle is on, plus any word looked up on its own.
-                await model.runTranslation(paragraphs: model.translationOn ? model.paragraphs : [],
-                                           using: session)
+                await model.runPendingTranslation(using: session)
             }
     }
 }
@@ -1370,7 +1391,7 @@ final class LibraryWindow {
             created.isReleasedWhenClosed = false
             // Wide enough for three columns at their own minimums; narrower and the sidebar
             // is squeezed until every label truncates.
-            created.setContentSize(NSSize(width: 1520, height: 820))
+            created.setContentSize(NSSize(width: 1360, height: 800))
             WindowPlacement.center(created)
             window = created
         }

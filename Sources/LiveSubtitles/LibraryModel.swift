@@ -78,6 +78,21 @@ enum TranslationScope {
 }
 
 /// What the window is pointed at.
+/// Dragged items are plain strings so both folders and sessions can travel through the same
+/// drop destination; the prefix says which is which.
+enum DragToken {
+    static func folder(_ id: String) -> String { "folder:\(id)" }
+    static func session(_ id: String) -> String { "session:\(id)" }
+}
+
+extension String {
+    func droppedID(for kind: String) -> String? {
+        let prefix = kind + ":"
+        guard hasPrefix(prefix) else { return nil }
+        return String(dropFirst(prefix.count))
+    }
+}
+
 enum LibraryTarget: Hashable {
     case allSessions
     case folder(String)
@@ -234,6 +249,21 @@ final class LibraryModel: ObservableObject {
         toggleTranslation()
     }
 
+    /// Whether the current request needs a session at all. The view rebuilds itself when the
+    /// request id changes, and only then does it run a translation task.
+    var hasPendingTranslation: Bool {
+        if translationScope == .paragraphs && paragraphTranslationOn { return true }
+        return !wantedWords.isEmpty
+    }
+
+    /// Runs the pending request against the session the view has just handed over.
+    @available(macOS 15.0, *)
+    func runPendingTranslation(using session: TranslationSession) async {
+        // A word lookup passes no paragraphs, so it cannot re-translate the episode.
+        let scope: [[Cue]] = (translationScope == .paragraphs && paragraphTranslationOn) ? paragraphs : []
+        await runTranslation(paragraphs: scope, using: session)
+    }
+
     func toggleTranslation() {
         if paragraphTranslationOn {
             paragraphTranslationOn = false
@@ -302,6 +332,9 @@ final class LibraryModel: ObservableObject {
             return
         }
         translationPhase = .working
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+            print("[tr] run: paragraphs=\(paragraphs.count) words=\(words.count) on=\(paragraphTranslationOn) scope=\(translationScope)")
+        }
         do {
             // Say plainly when the first run has to fetch the language pairs, because the
             // system's own sheet is what the user will see and it does not explain itself.
@@ -344,6 +377,9 @@ final class LibraryModel: ObservableObject {
                     break
                 }
             }
+            if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+                print("[tr] done: requests=\(requests.count) responses=\(responses.count) translated=\(translated.count)")
+            }
             translations = translated
             glosses = freshGlosses
             wantedWords.removeAll { freshGlosses[$0] != nil }
@@ -352,6 +388,9 @@ final class LibraryModel: ObservableObject {
                 inspection?.translation = gloss
             }
         } catch {
+            if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+                print("[tr] FAILED: \(error.localizedDescription)")
+            }
             translationPhase = .failed(error.localizedDescription)
         }
     }
@@ -464,6 +503,23 @@ final class LibraryModel: ObservableObject {
         await refresh()
     }
 
+    /// Handles something dropped on a folder — or on All Sessions, which means the root.
+    /// The token says what was dragged, since a folder and a session are both strings.
+    @discardableResult
+    func handleDrop(_ tokens: [String], onto folderID: String?) async -> Bool {
+        guard !tokens.isEmpty else { return false }
+        for token in tokens {
+            if let id = token.droppedID(for: "folder") {
+                await moveFolder(id, to: folderID)
+            } else if let id = token.droppedID(for: "session") {
+                guard let store else { continue }
+                try? await store.move(id, to: folderID)
+            }
+        }
+        await refresh()
+        return true
+    }
+
     /// Files a newly recorded session under its series, creating the folder the first time.
     ///
     /// This is the point of the tree: nobody stops watching to file an episode. The name
@@ -564,7 +620,6 @@ final class LibraryModel: ObservableObject {
         clearInspection()
         translations = [:]
         if paragraphTranslationOn {
-            translationPhase = .waiting
             translationScope = .paragraphs
             translationRequestID += 1
         }
