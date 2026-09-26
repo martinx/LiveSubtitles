@@ -22,29 +22,19 @@ struct LibraryView: View {
     @State private var renaming: Session?
     @State private var renameText = ""
     @State private var confirmDelete: Session?
+    @State private var folderPrompt: FolderPrompt?
 
     var body: some View {
         translationHost(NavigationSplitView {
-            List(selection: $model.section) {
-                ForEach(LibrarySection.allCases) { section in
-                    Label {
-                        Text(section.title).font(.system(size: 13.5))
-                    } icon: {
-                        Image(systemName: section.symbol)
-                            .font(.system(size: 13))
-                            .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
-                    }
-                    .tag(section)
-                    .sidebarRow()
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 280)
+            sidebar
+        } content: {
+            listColumn
+                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 420)
         } detail: {
             VStack(spacing: 0) {
                 toolbar
                 Divider()
-                pane
+                detailPane
                 Divider()
                 statusBar
             }
@@ -94,6 +84,219 @@ struct LibraryView: View {
             content.modifier(ParagraphTranslationHost(model: model))
         } else {
             content
+        }
+    }
+
+    // MARK: - Sidebar
+
+    /// Navigation: the whole archive, then a folder tree of any depth, then the study
+    /// sections. Folders live here rather than in a flat list because a series with seasons
+    /// is a tree, and flattening it is what made a long history unmanageable.
+    private var sidebar: some View {
+        List(selection: $model.target) {
+            Label {
+                Text("All Sessions").font(.system(size: 13.5))
+            } icon: {
+                Image(systemName: "rectangle.stack")
+                    .font(.system(size: 13))
+                    .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+            }
+            .tag(LibraryTarget.allSessions)
+            .sidebarRow()
+
+            if !model.folderTree.isEmpty {
+                Section("Folders") {
+                    OutlineGroup(model.folderTree, children: \.subfolders) { node in
+                        Label {
+                            Text(node.folder.name).font(.system(size: 13.5))
+                        } icon: {
+                            Image(systemName: "folder")
+                                .font(.system(size: 13))
+                                .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+                        }
+                        .badge(node.totalSessions)
+                        .tag(LibraryTarget.folder(node.folder.id))
+                        .contextMenu { folderMenu(node.folder) }
+                    }
+                }
+            }
+
+            Section("Study") {
+                ForEach([LibrarySection.notebook, .favourites, .vocabulary, .writing, .statistics]) { item in
+                    Label {
+                        Text(item.title).font(.system(size: 13.5))
+                    } icon: {
+                        Image(systemName: item.symbol)
+                            .font(.system(size: 13))
+                            .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+                    }
+                    .tag(LibraryTarget.section(item))
+                    .sidebarRow()
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
+        .safeAreaInset(edge: .bottom) {
+            HStack(spacing: 8) {
+                Button {
+                    folderPrompt = FolderPrompt(mode: .new(nil))
+                } label: {
+                    Label("New Folder", systemImage: "folder.badge.plus").font(.caption)
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+        }
+        .sheet(item: $folderPrompt) { prompt in
+            FolderPromptSheet(prompt: prompt) { name in
+                switch prompt.mode {
+                case .new(let parent):
+                    Task { await model.createFolder(named: name, in: parent) }
+                case .rename(let folder):
+                    Task { await model.renameFolder(folder.id, to: name) }
+                }
+                folderPrompt = nil
+            } onCancel: {
+                folderPrompt = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func folderMenu(_ folder: Folder) -> some View {
+        Button("New Subfolder…") { folderPrompt = FolderPrompt(mode: .new(folder.id)) }
+        Button("Rename…") { folderPrompt = FolderPrompt(mode: .rename(folder)) }
+        Divider()
+        Menu("Move to") {
+            folderDestinations { id in Task { await model.moveFolder(folder.id, to: id) } }
+        }
+        Divider()
+        Button("Delete Folder", role: .destructive) { Task { await model.deleteFolder(folder.id) } }
+    }
+
+    /// The folder tree, expanded as nested submenus — the same shape the sidebar shows.
+    @ViewBuilder
+    private func folderDestinations(_ action: @escaping (String?) -> Void) -> some View {
+        Button("All Sessions (no folder)") { action(nil) }
+        Divider()
+        ForEach(model.folderTree) { node in
+            FolderDestination(node: node, action: action)
+        }
+    }
+
+    // MARK: - List column
+
+    @ViewBuilder
+    private var listColumn: some View {
+        switch model.target {
+        case .allSessions, .folder:
+            sessionList
+        case .section(.notebook):
+            notesList(model.notebook, empty: "Nothing saved yet.")
+        case .section(.favourites):
+            notesList(model.favourites, empty: "No favourite lines yet.")
+        case .section(.vocabulary):
+            vocabularyList
+        default:
+            List { Text("Nothing to list here.").foregroundStyle(.secondary) }
+        }
+    }
+
+    private var sessionList: some View {
+        List(selection: $model.sessionSelection) {
+            ForEach(model.listedSessions) { session in
+                SessionRow(session: session)
+                    .tag(session.id)
+                    .contextMenu { sessionMenu(session) }
+            }
+            if model.listedSessions.isEmpty {
+                Text("No sessions here yet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: model.sessionSelection) { _, _ in
+            Task { await model.syncSelectionToList() }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if model.sessionSelection.count > 1 {
+                HStack(spacing: 10) {
+                    Text("\(model.sessionSelection.count) selected")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Delete", role: .destructive) {
+                        Task { await model.deleteSelectedSessions() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func sessionMenu(_ session: Session) -> some View {
+        Button("Rename…") {
+            renameText = session.title
+            renaming = session
+        }
+        Menu("Move to") {
+            folderDestinations { id in Task { await model.moveSelectedSessions(to: id) } }
+        }
+        Divider()
+        Menu("Export") {
+            ForEach(ExportFormat.allCases, id: \.self) { format in
+                Button(format.displayName) { model.export(format, sessionID: session.id) }
+            }
+        }
+        if model.sessionSelection.count > 1 {
+            Divider()
+            Button("Delete \(model.sessionSelection.count) Sessions", role: .destructive) {
+                Task { await model.deleteSelectedSessions() }
+            }
+        } else {
+            Divider()
+            Button("Delete…", role: .destructive) { confirmDelete = session }
+        }
+    }
+
+    private func notesList(_ notes: [NoteWithSession], empty: String) -> some View {
+        List {
+            ForEach(notes) { entry in
+                VStack(alignment: .leading, spacing: 3) {
+                    MarkdownText(entry.note.text)
+                    Text(entry.sessionTitle).font(.caption2).foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 3)
+            }
+            if notes.isEmpty {
+                Text(empty).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var vocabularyList: some View {
+        List {
+            ForEach(model.vocabulary) { entry in
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.term)
+                        if let gloss = model.glosses[entry.term] {
+                            Text(gloss).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if entry.count > 1 {
+                        Text("×\(entry.count)").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            if model.vocabulary.isEmpty {
+                Text("No vocabulary yet. Double-click a word in the transcript.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -177,17 +380,26 @@ struct LibraryView: View {
     // MARK: - Panes
 
     @ViewBuilder
-    private var pane: some View {
-        switch model.section {
-        case .sessions:     reader
-        case .notebook:     notesPane(model.notebook, empty: "Nothing saved yet.")
-        case .favourites:   notesPane(model.favourites, empty: "No favourite lines yet.")
-        case .vocabulary:   vocabularyPane
-        case .statistics:   statisticsPane
-        case .collections:  placeholder("Collections",
-                                        "Group sessions by series or topic. Next pass.")
-        case .writing:      placeholder("Writing",
-                                        "Summaries and graded practice, once the local model is in.")
+    private var detailPane: some View {
+        switch model.target {
+        case .allSessions, .folder:
+            reader
+        case .section(.statistics):
+            statisticsPane
+        case .section(.writing):
+            placeholder("Writing",
+                        "Summaries and graded practice, once the local model is in.")
+        case .section(let other):
+            placeholder(other.title, detailHint(for: other))
+        }
+    }
+
+    private func detailHint(for section: LibrarySection) -> String {
+        switch section {
+        case .notebook:    return "Pick a note on the left. Notes are Markdown and keep a link to the line they came from."
+        case .favourites:  return "Lines you marked while reading."
+        case .vocabulary:  return "Words you saved. Look one up again from the transcript."
+        default:           return ""
         }
     }
 
@@ -241,7 +453,8 @@ struct LibraryView: View {
         }
     }
 
-    private func notesPane(_ notes: [NoteWithSession], empty: String) -> some View {
+    @ViewBuilder
+    private func unusedNotesPane(_ notes: [NoteWithSession], empty: String) -> some View {
         Group {
             if notes.isEmpty {
                 placeholder("Nothing here yet", empty)
@@ -276,7 +489,7 @@ struct LibraryView: View {
         }
     }
 
-    private var vocabularyPane: some View {
+    private var unusedVocabularyPane: some View {
         Group {
             if model.vocabulary.isEmpty {
                 placeholder("No vocabulary yet",
@@ -499,6 +712,80 @@ private struct WordToken: View {
     private func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Folders in menus
+
+/// A folder as a nested submenu, so "Move to" shows the same tree the sidebar does.
+struct FolderDestination: View {
+    let node: FolderNode
+    let action: (String?) -> Void
+
+    var body: some View {
+        if node.children.isEmpty {
+            Button(node.folder.name) { action(node.folder.id) }
+        } else {
+            Menu(node.folder.name) {
+                Button("Move Here") { action(node.folder.id) }
+                Divider()
+                ForEach(node.children) { child in
+                    FolderDestination(node: child, action: action)
+                }
+            }
+        }
+    }
+}
+
+/// New folder or rename, in one small sheet.
+struct FolderPrompt: Identifiable {
+    enum Mode {
+        case new(String?)      // parent folder id, nil for the root
+        case rename(Folder)
+    }
+
+    let id = UUID()
+    let mode: Mode
+    var text: String = ""
+}
+
+struct FolderPromptSheet: View {
+    @State var prompt: FolderPrompt
+    let onCommit: (String) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title).font(.headline)
+            TextField("Name", text: $prompt.text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(commit)
+                .frame(width: 300)
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Save", action: commit)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(prompt.text.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .onAppear {
+            if case .rename(let folder) = prompt.mode { prompt.text = folder.name }
+        }
+    }
+
+    private var title: String {
+        switch prompt.mode {
+        case .new(let parent): return parent == nil ? "New Folder" : "New Subfolder"
+        case .rename:          return "Rename Folder"
+        }
+    }
+
+    private func commit() {
+        let name = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        onCommit(name)
     }
 }
 
@@ -738,6 +1025,20 @@ private struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+private struct SessionRow: View {
+    let session: Session
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(session.title).lineLimit(1)
+            Text("\(session.cueCount) lines · \(session.startedAt.formatted(date: .abbreviated, time: .shortened))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
     }
 }
 

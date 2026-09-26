@@ -39,6 +39,10 @@ public struct FolderNode: Identifiable, Hashable, Sendable {
 
     public var id: String { folder.id }
 
+    /// For `OutlineGroup`, which wants nil rather than an empty array at a leaf — and so
+    /// leaves get no disclosure triangle.
+    public var subfolders: [FolderNode]? { children.isEmpty ? nil : children }
+
     /// Sessions in this folder and everything beneath it.
     public var totalSessions: Int {
         folder.sessionCount + children.reduce(0) { $0 + $1.totalSessions }
@@ -149,6 +153,10 @@ extension HistoryStore {
     public func move(_ sessionID: String, to folderID: String?) throws {
         try connection.run("UPDATE sessions SET folderID = ? WHERE id = ?;",
                            [folderID.map { SQLValue.text($0) } ?? .null, .text(sessionID)])
+    }
+
+    public func folders(named name: String) throws -> [Folder] {
+        try folders().filter { $0.name.compare(name, options: .caseInsensitive) == .orderedSame }
     }
 
     public func folder(of sessionID: String) throws -> Folder? {

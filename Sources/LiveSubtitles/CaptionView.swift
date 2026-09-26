@@ -81,7 +81,7 @@ struct CaptionView: View {
     @ViewBuilder
     private var content: some View {
         if model.hasText {
-            VStack(spacing: 3) {
+            VStack(spacing: paragraphGap) {
                 if committedLineLimit > 0, !model.committed.isEmpty {
                     Text(model.committed)
                         .foregroundStyle(.white)
@@ -91,20 +91,51 @@ struct CaptionView: View {
 
                 if !model.live.isEmpty {
                     Text(model.live)
-                        // Dimmer, so the viewer can tell the tail is still being revised.
-                        .foregroundStyle(.white.opacity(0.75))
+                        // A shade dimmer, so the tail reads as still being revised. Only a
+                        // shade: the old 0.75 cost more in legibility than the hint was worth.
+                        .foregroundStyle(.white.opacity(0.88))
                         .lineLimit(liveLineLimit)
                         .truncationMode(.head)
                 }
             }
-            .font(.system(size: settings.fontSize, weight: .semibold))
+            .font(captionFont)
+            .tracking(captionTracking)
+            .lineSpacing(captionLeading)
             .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.9), radius: 3, x: 0, y: 1)
+            // A wide, soft shadow rather than a hard one. Apple's own captions sit on a
+            // gentle shadow that stays readable over bright video without looking drawn on.
+            .shadow(color: .black.opacity(0.55),
+                    radius: max(2, settings.fontSize * 0.14),
+                    x: 0, y: settings.fontSize * 0.04)
             .animation(.easeOut(duration: 0.12), value: model.live)
         } else if !model.status.isEmpty {
             Text(model.status)
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.white.opacity(0.8))
         }
+    }
+
+    // MARK: - Typography
+    //
+    // Set the way the system sets captions: SF Pro, semibold, slightly tightened tracking,
+    // and leading that scales with the size instead of being a fixed number of points.
+
+    private var captionFont: Font {
+        .system(size: settings.fontSize, weight: .semibold, design: .default)
+    }
+
+    /// Large type needs a touch of negative tracking or it reads loose.
+    private var captionTracking: CGFloat {
+        -settings.fontSize * 0.012
+    }
+
+    /// ~1.18× the size, which is where subtitles stop looking cramped without drifting apart.
+    private var captionLeading: CGFloat {
+        settings.fontSize * 0.18
+    }
+
+    /// The gap between the settled line and the one still being revised.
+    private var paragraphGap: CGFloat {
+        settings.fontSize * 0.16
     }
 }

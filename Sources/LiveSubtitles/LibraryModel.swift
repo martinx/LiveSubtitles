@@ -65,6 +65,13 @@ struct NoteDraft: Identifiable {
 }
 
 /// What the translate button is doing, in a form the toolbar can show.
+/// What the window is pointed at.
+enum LibraryTarget: Hashable {
+    case allSessions
+    case folder(String)
+    case section(LibrarySection)
+}
+
 enum TranslationPhase: Equatable {
     case off
     case waiting        // the task has been asked to run
@@ -105,7 +112,15 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var totalCues = 0
     @Published var errorMessage: String?
     @Published var selectedCueID: Int64?
-    @Published var section: LibrarySection = .sessions
+    /// Where the window is pointed. A folder, or all of them, or one of the study sections.
+    @Published var target: LibraryTarget = .allSessions
+
+    @Published private(set) var folderTree: [FolderNode] = []
+    /// Sessions in the current target. Kept apart from `sessions` (the whole archive) so the
+    /// list column can be scoped to a folder without losing the global list.
+    @Published private(set) var listedSessions: [Session] = []
+    /// Multi-selection in the list, for moving or deleting in bulk.
+    @Published var sessionSelection = Set<String>()
 
     // The other sections' contents.
     @Published private(set) var notebook: [NoteWithSession] = []
@@ -140,6 +155,12 @@ final class LibraryModel: ObservableObject {
 
     private var store: HistoryStore?
     private var paletteTask: Task<Void, Never>?
+
+    /// The old section accessor, kept so the panes and toolbar do not all have to change.
+    var section: LibrarySection {
+        get { if case .section(let value) = target { return value }; return .sessions }
+        set { target = .section(newValue) }
+    }
     private var searchTask: Task<Void, Never>?
 
     var isSearching: Bool {
@@ -308,6 +329,9 @@ final class LibraryModel: ObservableObject {
         do {
             sessions = try await store.sessions()
             totalCues = try await store.cueCount()
+            folderTree = try await store.folderTree()
+            listedSessions = try await sessionsForTarget()
+                listedSessions = try await sessionsForTarget()
             notebook = try await store.notes()
             favourites = try await store.notes(kind: .favourite)
             vocabulary = try await store.vocabulary()
@@ -325,6 +349,91 @@ final class LibraryModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    // MARK: - Folders
+
+    private func sessionsForTarget() async throws -> [Session] {
+        guard let store else { return [] }
+        switch target {
+        case .allSessions:            return try await store.sessions()
+        case .folder(let id):         return try await store.sessions(inFolder: id)
+        case .section:                return try await store.sessions()
+        }
+    }
+
+    func selectTarget(_ newTarget: LibraryTarget) async {
+        target = newTarget
+        sessionSelection = []
+        selectedSessionID = nil
+        await refreshListed()
+    }
+
+    func refreshListed() async {
+        guard let store else { return }
+        folderTree = (try? await store.folderTree()) ?? folderTree
+        listedSessions = (try? await sessionsForTarget()) ?? []
+    }
+
+    @discardableResult
+    func createFolder(named name: String, in parentID: String? = nil) async -> Folder? {
+        guard let store, let folder = try? await store.createFolder(name, parentID: parentID) else {
+            return nil
+        }
+        await refreshListed()
+        return folder
+    }
+
+    func renameFolder(_ id: String, to name: String) async {
+        guard let store else { return }
+        try? await store.renameFolder(id, to: name)
+        await refreshListed()
+    }
+
+    func deleteFolder(_ id: String) async {
+        guard let store else { return }
+        try? await store.deleteFolder(id)
+        if case .folder(let current) = target, current == id { target = .allSessions }
+        await refresh()
+    }
+
+    func moveFolder(_ id: String, to parentID: String?) async {
+        guard let store else { return }
+        try? await store.moveFolder(id, to: parentID)
+        await refreshListed()
+    }
+
+    /// Moves every selected session into a folder, or back to the root when nil.
+    func moveSelectedSessions(to folderID: String?) async {
+        guard let store, !sessionSelection.isEmpty else { return }
+        for id in sessionSelection { try? await store.move(id, to: folderID) }
+        await refresh()
+        sessionSelection = []
+    }
+
+    func deleteSelectedSessions() async {
+        guard let store else { return }
+        for id in sessionSelection { try? await store.deleteSession(id) }
+        sessionSelection = []
+        await refresh()
+    }
+
+    /// Files a newly recorded session under its series, creating the folder the first time.
+    ///
+    /// This is the point of the tree: nobody stops watching to file an episode. The name
+    /// comes from the titles already recorded, so it only fires when a series exists.
+    func autoFile(_ sessionID: String) async {
+        guard let store,
+              let name = try? await store.suggestedFolderName(for: sessionID),
+              !name.isEmpty else { return }
+        let existing = (try? await store.folders())?.first {
+            $0.name.compare(name, options: .caseInsensitive) == .orderedSame
+        }
+        var folder = existing
+        if folder == nil { folder = try? await store.createFolder(name) }
+        guard let folder else { return }
+        try? await store.move(sessionID, to: folder.id)
+        await refresh()
     }
 
     /// Looks a word up and finds every other line it appears in.
@@ -388,6 +497,12 @@ final class LibraryModel: ObservableObject {
     }
 
     /// The list binds straight to `selectedSessionID`; this is what reacting to it means.
+    /// The list drives the reader: one selected session is the one being read.
+    func syncSelectionToList() async {
+        guard sessionSelection.count == 1, let id = sessionSelection.first else { return }
+        selectedSessionID = id
+    }
+
     func loadSelected() async {
         selectedCueID = nil
         clearInspection()
