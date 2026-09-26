@@ -14,6 +14,19 @@ All notable changes to this project are documented here. The format follows
   committed line behind the live text.
 - Automatic recovery when the capture stream stops (display change, permission change).
 
+## [0.1.5] - 2026-09-26
+
+### Fixed
+
+- **Max lines works again.** 0.1.4 removed a layout constraint in order to fix a bad height
+  measurement, which instead left the overlay pinned to about two lines: raising Max lines
+  grew nothing, the extra lines were clipped. The constraint is back, and the bad
+  measurement is now bounded by what the settings can actually require — the bar holds at
+  most `lineLimit` lines, so the ceiling is exact.
+- Verified by counting rendered lines from screenshots for Max lines = 2/3/4/5:
+  2, 3, 3, 4 lines respectively, never above the limit, with the overlay height growing
+  94 → 127 → 160 → 196 pt.
+
 ## [0.1.4] - 2026-09-26
 
 ### Fixed

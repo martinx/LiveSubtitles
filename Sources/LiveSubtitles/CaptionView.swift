@@ -50,6 +50,10 @@ struct CaptionView: View {
             .padding(.vertical, 14)
             // Full-width bar...
             .frame(maxWidth: .infinity)
+            // Never let the panel's *current* height clamp the bar. The panel is sized from
+            // this measurement, so a clamped measurement deadlocks the two: the overlay
+            // would stop growing and Max lines would silently show fewer lines than asked.
+            .fixedSize(horizontal: false, vertical: true)
             // ...whose *height* hugs the text, so a large Max lines setting does not
             // leave a permanent black block around one line of captions.
             .background(
