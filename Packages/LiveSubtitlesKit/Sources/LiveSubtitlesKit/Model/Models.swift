@@ -49,13 +49,18 @@ public struct Cue: Identifiable, Hashable, Sendable {
     public let startMs: Int
     public let endMs: Int
     public let text: String
+    /// Who said it, once the analysis pass has run. Nil means "not analysed yet", which is
+    /// different from "one speaker" — the reader should not claim to know.
+    public let speaker: String?
 
-    public init(id: Int64 = 0, sessionID: String, startMs: Int, endMs: Int, text: String) {
+    public init(id: Int64 = 0, sessionID: String, startMs: Int, endMs: Int,
+                text: String, speaker: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.startMs = startMs
         self.endMs = endMs
         self.text = text
+        self.speaker = speaker
     }
 
     /// `00:12:34` for the reader's gutter.
@@ -93,6 +98,17 @@ public struct Note: Identifiable, Hashable, Sendable {
         self.kind = kind
         self.text = text
         self.createdAt = createdAt
+    }
+}
+
+/// One cue's speaker label, as written back after the analysis pass.
+public struct CueSpeaker: Sendable, Hashable {
+    public let cueID: Int64
+    public let speaker: String
+
+    public init(cueID: Int64, speaker: String) {
+        self.cueID = cueID
+        self.speaker = speaker
     }
 }
 

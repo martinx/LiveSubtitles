@@ -340,6 +340,35 @@ final class CaptionController {
         guard let history, let session = liveSession else { return }
         try? await history.endSession(session.id)
         NotificationCenter.default.post(name: .liveSubtitlesHistoryChanged, object: nil)
+
+        // Analyse in the background: the transcript is already saved and usable, and the
+        // speaker pass takes about twenty seconds for an episode.
+        // Switched off deliberately: the converter works as a standalone program but fails
+        // inside the app with an opaque _GenericObjCError, and a pass that runs on every
+        // session end and always fails is worse than no pass. The schema, the recorder and
+        // the analyzer are all in place; this is the one switch to flip once that is fixed.
+        if SessionAnalyzer.isEnabled,
+           let url = try? SessionRecorder.url(for: session.id),
+           FileManager.default.fileExists(atPath: url.path) {
+            let store = history
+            let id = session.id
+            Task.detached(priority: .utility) {
+                do {
+                    let labelled = try await SessionAnalyzer.shared.analyze(
+                        sessionID: id, audioURL: url, store: store)
+                    if labelled > 0 {
+                        await MainActor.run {
+                            NotificationCenter.default.post(
+                                name: .liveSubtitlesHistoryChanged, object: nil)
+                        }
+                    }
+                } catch {
+                    if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+                        print("[analyze] failed: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
             print("[history] session ended")
         }

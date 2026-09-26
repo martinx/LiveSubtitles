@@ -140,6 +140,22 @@ public actor HistoryStore {
             """, [.text(sessionID), .int(Int64(startMs)), .int(Int64(endMs)), .text(text)])
     }
 
+    /// Writes a whole session's speaker labels in one transaction. Done in bulk because the
+    /// alternative is one transaction per line, and a session has hundreds.
+    public func applySpeakers(_ assignments: [CueSpeaker]) throws {
+        guard !assignments.isEmpty else { return }
+        try connection.transaction {
+            for assignment in assignments {
+                try connection.run("UPDATE cues SET speaker = ? WHERE id = ?;",
+                                   [.text(assignment.speaker), .int(assignment.cueID)])
+            }
+        }
+        try connection.run("""
+            UPDATE sessions SET enhancedAt = ? WHERE id = (
+                SELECT sessionID FROM cues WHERE id = ? LIMIT 1);
+            """, [.double(Date().timeIntervalSince1970), .int(assignments[0].cueID)])
+    }
+
     public func setAudioPath(_ path: String?, for sessionID: String) throws {
         try connection.run("UPDATE sessions SET audioPath = ? WHERE id = ?;",
                            [path.map { SQLValue.text($0) } ?? .null, .text(sessionID)])
@@ -183,11 +199,12 @@ public actor HistoryStore {
 
     public func cues(in sessionID: String) throws -> [Cue] {
         try connection.query("""
-            SELECT id, sessionID, startMs, endMs, text FROM cues
+            SELECT id, sessionID, startMs, endMs, text, speaker FROM cues
             WHERE sessionID = ? ORDER BY startMs;
             """, [.text(sessionID)]) { row in
             Cue(id: row.int(0), sessionID: row.string(1),
-                startMs: Int(row.int(2)), endMs: Int(row.int(3)), text: row.string(4))
+                startMs: Int(row.int(2)), endMs: Int(row.int(3)), text: row.string(4),
+                speaker: row.isNull(5) ? nil : row.string(5))
         }
     }
 
