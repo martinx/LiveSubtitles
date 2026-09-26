@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
 
     private lazy var aboutWindow = AboutWindow()
+    private lazy var libraryWindow = LibraryWindow()
+    private lazy var libraryModel = LibraryModel()
     private lazy var welcomeWindow = WelcomeWindow()
     private var updateChecker: UpdateChecker?
 
@@ -63,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openDebugWindowIfRequested()
     }
 
-    /// LIVESUBTITLES_OPEN=settings|welcome|about opens a window straight away, so each
+    /// LIVESUBTITLES_OPEN=settings|welcome|about|library opens a window straight away, so each
     /// of them can be inspected without clicking through the menu.
     /// LIVESUBTITLES_OPEN_SETTINGS=1 is the older spelling and still works.
     private func openDebugWindowIfRequested() {
@@ -77,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case "settings": self?.openSettings()
             case "welcome": self?.showWelcome()
             case "about": self?.showAbout()
+            case "library": self?.openLibrary()
             default: break
             }
         }
@@ -205,6 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         addUpdateItems(to: menu)
 
+        menu.addItem(action("Library…", #selector(openLibrary), key: "l", symbol: "books.vertical"))
         menu.addItem(action("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
         menu.addItem(action("How to Use", #selector(showWelcome), symbol: "questionmark.circle"))
         menu.addItem(action("About \(AppInfo.name)", #selector(showAbout), symbol: "info.circle"))
@@ -302,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenu.addItem(action("Check for Updates…", #selector(checkForUpdates),
                                symbol: "arrow.triangle.2.circlepath"))
         appMenu.addItem(.separator())
+        appMenu.addItem(action("Library…", #selector(openLibrary), key: "l", symbol: "books.vertical"))
         appMenu.addItem(action("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
         appMenu.addItem(action("How to Use", #selector(showWelcome), symbol: "questionmark.circle"))
         appMenu.addItem(.separator())
@@ -334,6 +339,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func exportTranscript() { controller?.exportTranscript() }
     @objc private func copyTranscript() { controller?.copyTranscript() }
     @objc private func openSettings() { controller?.openSettings() }
+
+    @objc private func openLibrary() {
+        libraryModel.attach(controller?.historyStore())
+        libraryWindow.show(model: libraryModel)
+    }
 
     @objc private func showAbout() {
         aboutWindow.show { [weak self] in self?.showWelcome() }

@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The Library window** (menu bar → Library…, ⇧⌘L): every session is now kept, with its
+  transcript, and can be browsed, searched across, renamed, exported and annotated.
+- **Persistent history** in `~/Library/Application Support/Live Subtitles/history.sqlite` —
+  SQLite with FTS5, so search runs over every session ever recorded.
+- **Notes**: select a line and save a word, a phrase, a favourite or a note against it.
+- **`LiveSubtitlesKit`**, a local Swift package holding the storage layer, deliberately
+  free of AppKit so it can be tested without launching the app (7 tests, all passing, run
+  in CI).
+
 ### Planned
 
 - Offline transcription of local files: pre-transcribe an episode with a batch model

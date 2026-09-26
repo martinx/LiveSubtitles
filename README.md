@@ -298,6 +298,7 @@ make build                        # bundles Resources/AppIcon.icns
 ## Architecture
 
 ```
+Packages/LiveSubtitlesKit/     storage and (later) analysis — no AppKit, tested on its own
 Sources/LiveSubtitles/
 ├── App.swift                 entry point (accessory unless the Dock icon is on)
 ├── AppDelegate.swift         status item, status menu, app main menu, Dock state

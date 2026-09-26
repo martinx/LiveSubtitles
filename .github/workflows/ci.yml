@@ -39,6 +39,11 @@ jobs:
       - name: Build (debug)
         run: swift build
 
+      # The study-side core is a separate package precisely so it can be tested without
+      # launching the app; run its tests on every push.
+      - name: Test LiveSubtitlesKit
+        run: swift test --package-path Packages/LiveSubtitlesKit
+
       - name: Assemble the app bundle
         run: CODESIGN_IDENTITY=adhoc make build
 

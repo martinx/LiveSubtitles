@@ -18,6 +18,7 @@
 
 import AppKit
 import Combine
+import LiveSubtitlesKit
 import UniformTypeIdentifiers
 
 enum ListeningState {
@@ -56,6 +57,10 @@ final class CaptionController {
     private var engineTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var hotKeySignature = ""
+
+    /// Persistent history. Created on first use; a failure here must never stop captioning.
+    private var history: HistoryStore?
+    private var liveSession: Session?
     /// The engine options the running transcriber was built with.
     private var engineSettingsSignature = ""
 
@@ -72,6 +77,9 @@ final class CaptionController {
         let settings = Settings()
         self.settings = settings
         self.captions = CaptionModel(settings: settings)
+        // Opened up front so the library can show existing history before anything new
+        // is recorded. A failure is remembered as nil and surfaces in the window.
+        history = try? HistoryStore()
 
         // Re-apply the overlay whenever a setting changes. `objectWillChange` fires
         // before the value is stored, hence the hop to the next runloop turn.
@@ -166,6 +174,7 @@ final class CaptionController {
             try await capture.start()
             state = .listening
             captions.setStatus("")
+            await beginHistorySession()
             consume(updates)
         } catch {
             captions.setStatus("Error: \(error.localizedDescription)")
@@ -175,6 +184,7 @@ final class CaptionController {
     }
 
     private func endSession(releaseModel: Bool) async {
+        await endHistorySession()
         consumer?.cancel()
         consumer = nil
         await capture?.stop()
@@ -230,9 +240,11 @@ final class CaptionController {
                 case .utterance:
                     let line = Self.finalize(update.text)
                     guard !line.isEmpty else { break }
-                    self.transcript.append(TranscriptCue(startMs: update.startMs,
-                                                         endMs: update.endMs,
-                                                         text: line))
+                    let cue = TranscriptCue(startMs: update.startMs,
+                                            endMs: update.endMs,
+                                            text: line)
+                    self.transcript.append(cue)
+                    self.record(cue, text: line)
                     self.captions.applyUtterance(line)
                     self.dumpSRTIfRequested()
                 }
@@ -259,6 +271,50 @@ final class CaptionController {
         guard state == .listening else { return }
         restartEngine()
     }
+
+    // MARK: - History
+
+    /// Opens the database and starts a session. Every failure path here is soft: a history
+    /// that cannot be written must not take captioning down with it.
+    private func beginHistorySession() async {
+        do {
+            guard let history else { return }
+            let source = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+            let model = SpeechModel(rawValue: settings.modelID) ?? .default
+            let session = try await history.startSession(source: source, modelID: model.rawValue)
+            liveSession = session
+            if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+                print("[history] session started — \(session.title)")
+            }
+        } catch {
+            history = nil
+            liveSession = nil
+            captions.setStatus("History unavailable: \(error.localizedDescription)")
+        }
+    }
+
+    private func endHistorySession() async {
+        guard let history, let session = liveSession else { return }
+        try? await history.endSession(session.id)
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+            print("[history] session ended")
+        }
+        liveSession = nil
+    }
+
+    /// Mirrors one finished line into the archive.
+    private func record(_ cue: TranscriptCue, text: String) {
+        guard let history, let session = liveSession else { return }
+        Task {
+            try? await history.appendCue(sessionID: session.id,
+                                         startMs: cue.startMs,
+                                         endMs: cue.endMs,
+                                         text: text)
+        }
+    }
+
+    /// The library window shares one database and one session state with the pipeline.
+    func historyStore() -> HistoryStore? { history }
 
     // MARK: - Global shortcuts
 
