@@ -790,77 +790,208 @@ struct FolderPromptSheet: View {
 }
 
 // MARK: - The word card
+//
+//  Read at a glance, in the order a person actually asks: what does it mean, how is it
+//  said, what else does it mean, where else did I see it. Everything else is a button.
 
 private struct WordCard: View {
     @ObservedObject var model: LibraryModel
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             if let inspection = model.inspection {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(inspection.lemma)
-                        .font(.system(size: 16, weight: .semibold))
-                    if let gloss = inspection.translation ?? model.glosses[inspection.lemma] {
-                        Text(gloss).font(.system(size: 15)).foregroundStyle(.secondary)
-                    } else if model.translationPhase == .glossing || model.translationPhase == .working {
-                        ProgressView().controlSize(.small)
-                    }
-                    Spacer(minLength: 0)
+                heading(inspection)
+                Divider().padding(.vertical, 10)
+                if let entry = inspection.entry {
+                    senses(entry)
+                } else {
+                    missingEntry(inspection)
                 }
+                if !model.occurrences.isEmpty {
+                    Divider().padding(.vertical, 10)
+                    occurrences
+                }
+                Divider().padding(.vertical, 10)
+                actions(inspection)
+            }
+        }
+        .padding(16)
+        .frame(width: 360)
+    }
 
-                if let definition = inspection.definition {
-                    Text(definition)
+    // MARK: Header — the word, how to say it, and what it means in Chinese
+
+    private func heading(_ inspection: WordInspection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(inspection.entry?.headword ?? inspection.lemma)
+                    .font(.system(size: 22, weight: .semibold))
+                if let phonetics = inspection.entry?.phonetics {
+                    Text("/\(phonetics)/")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    Task { await model.saveInspectedWord() }
+                } label: {
+                    Image(systemName: "star")
+                }
+                .buttonStyle(.borderless)
+                .help("Add to vocabulary")
+            }
+
+            HStack(spacing: 8) {
+                if let gloss = inspection.translation ?? model.glosses[inspection.lemma] {
+                    Text(gloss)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.primary)
+                } else {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("translating…").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+                if let part = inspection.entry?.partOfSpeech {
+                    Text(part)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(5)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Text("No dictionary entry on this Mac.")
-                        .font(.caption).foregroundStyle(.tertiary)
-                }
-
-                if !model.occurrences.isEmpty {
-                    Divider()
-                    Text("Other lines (\(model.occurrences.count))")
-                        .font(.caption).foregroundStyle(.secondary)
-                    ForEach(model.occurrences.prefix(3)) { hit in
-                        Button {
-                            Task { await model.select(hit.sessionID) }
-                            model.selectedCueID = hit.cue.id
-                        } label: {
-                            Text("• \(hit.cue.text)")
-                                .font(.caption2)
-                                .lineLimit(2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-
-                Divider()
-                HStack(spacing: 8) {
-                    Button("Add to Vocabulary") { Task { await model.saveInspectedWord() } }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    Button("Note…") { model.beginNote(cue: nil) }
-                        .controlSize(.small)
-                    Spacer()
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
                 }
             }
         }
-        .padding(14)
-        .frame(width: 320)
+    }
+
+    // MARK: Body — the senses, definition first and the example under it
+
+    private func senses(_ entry: DictionaryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ForEach(entry.senses.prefix(3)) { sense in
+                VStack(alignment: .leading, spacing: 2) {
+                    // The register note sits above rather than beside: beside, a long one
+                    // like "(past and past participle met)" halves the definition's width.
+                    if let label = sense.label {
+                        Text(label)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    Text(sense.definition)
+                        .font(.system(size: 13))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let example = sense.example {
+                        Text("“\(example)”")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func missingEntry(_ inspection: WordInspection) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("This Mac has no dictionary entry for it.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Try an online source below.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+    }
+
+    // MARK: Where else it appears
+
+    private var occurrences: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Image(systemName: "text.magnifyingglass").font(.caption2)
+                Text("Appears in \(model.occurrences.count) other line\(model.occurrences.count == 1 ? "" : "s")")
+                    .font(.caption)
+            }
+            .foregroundStyle(.secondary)
+
+            ForEach(model.occurrences.prefix(3)) { hit in
+                Button {
+                    Task { await model.select(hit.sessionID) }
+                    model.selectedCueID = hit.cue.id
+                } label: {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(hit.cue.timestamp)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                        Text(hit.cue.text)
+                            .font(.caption2)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: Actions, including getting a better dictionary
+
+    private func actions(_ inspection: WordInspection) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                Task { await model.saveInspectedWord() }
+            } label: {
+                Label("Save", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button {
+                model.beginNote(cue: nil, text: "**\(inspection.lemma)** — ")
+            } label: {
+                Label("Note", systemImage: "square.and.pencil")
+            }
+            .controlSize(.small)
+
+            Menu {
+                ForEach(DictionaryLookup.onlineSources(for: inspection.lemma), id: \.0) { name, url in
+                    Button(name) { openURL(url) }
+                }
+            } label: {
+                Label("More", systemImage: "safari")
+            }
+            .menuStyle(.borderlessButton)
+            .controlSize(.small)
+            .fixedSize()
+
+            Spacer(minLength: 0)
+
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(inspection.lemma, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("Copy the word")
+        }
     }
 }
 
 // MARK: - Notes
+//
+//  No kind picker: the kind follows from where the note was started, and "is it a word or a
+//  phrase" is something the app can see for itself. What the user gets instead is a toolbar
+//  that does something, the sentence already quoted, and the words one tap away.
 
-/// Markdown, with the link back to the sentence already in place.
 private struct NoteEditor: View {
     @ObservedObject var model: LibraryModel
     @State var draft: NoteDraft
+    @State private var showingPreview = false
+    @FocusState private var editing: Bool
 
     private var words: [String] {
         guard let cueID = draft.cueID,
@@ -869,36 +1000,103 @@ private struct NoteEditor: View {
         return DictionaryLookup.words(in: cue.text).filter { seen.insert($0.lowercased()).inserted }
     }
 
+    private var linkedCue: Cue? {
+        guard let cueID = draft.cueID else { return nil }
+        return model.readerCues.first { $0.id == cueID }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Picker("", selection: $draft.kind) {
-                    Text("Note").tag(Note.Kind.note)
-                    Text("Word").tag(Note.Kind.word)
-                    Text("Phrase").tag(Note.Kind.phrase)
-                    Text("Favourite").tag(Note.Kind.favourite)
+        VStack(spacing: 0) {
+            header
+            Divider()
+            if let cue = linkedCue { linkedLine(cue); Divider() }
+            editor
+            Divider()
+            footer
+        }
+        .frame(width: 600)
+        .onAppear { editing = true }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "square.and.pencil").foregroundStyle(.secondary)
+            Text("New Note").font(.headline)
+            Spacer()
+            Button {
+                draft.kind = draft.kind == .favourite ? .note : .favourite
+            } label: {
+                Label("Favourite", systemImage: draft.kind == .favourite ? "star.fill" : "star")
+                    .foregroundStyle(draft.kind == .favourite ? .yellow : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Also keep this line in Favourites")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func linkedLine(_ cue: Cue) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "link").font(.caption2).foregroundStyle(.tertiary)
+            Text(cue.timestamp)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+            Text(cue.text).font(.caption).lineLimit(2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(.quaternary.opacity(0.4))
+    }
+
+    /// A toolbar that actually edits the text, which is what makes this feel like an editor
+    /// rather than a text box.
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 4) {
+                formatButton("bold", help: "Bold") { wrap("**") }
+                formatButton("italic", help: "Italic") { wrap("*") }
+                formatButton("chevron.left.forwardslash.chevron.right", help: "Code") { wrap("`") }
+                formatButton("text.quote", help: "Quote") { prefix("> ") }
+                formatButton("list.bullet", help: "List") { prefix("- ") }
+                Divider().frame(height: 14)
+                formatButton("textformat.superscript", help: "Insert the whole sentence") {
+                    if let cue = linkedCue {
+                        draft.text += (draft.text.isEmpty ? "" : "\n") + "> \(cue.timestamp) \(cue.text)\n"
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 320)
                 Spacer()
-                if let cueID = draft.cueID,
-                   let cue = model.readerCues.first(where: { $0.id == cueID }) {
-                    Text("Linked to \(cue.timestamp)")
-                        .font(.caption).foregroundStyle(.secondary)
+                Toggle("Preview", isOn: $showingPreview)
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+
+            Divider()
+
+            if showingPreview {
+                ScrollView {
+                    MarkdownText(draft.text.isEmpty ? "_Nothing yet._" : draft.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
                 }
+                .frame(minHeight: 190)
+            } else {
+                TextEditor(text: $draft.text)
+                    .font(.system(size: 13.5))
+                    .focused($editing)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(minHeight: 190)
             }
 
-            TextEditor(text: $draft.text)
-                .font(.system(size: 13.5))
-                .frame(minHeight: 170)
-                .padding(8)
-                .glassPanel(cornerRadius: Metrics.controlRadius)
-
             if !words.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Insert a word").font(.caption).foregroundStyle(.secondary)
-                    FlowLayout(spacing: 5, lineSpacing: 5) {
+                Divider()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        Text("Insert").font(.caption2).foregroundStyle(.tertiary)
                         ForEach(words, id: \.self) { word in
                             Button(word) { insert(word) }
                                 .buttonStyle(.plain)
@@ -907,23 +1105,46 @@ private struct NoteEditor: View {
                                 .background(.quaternary, in: Capsule())
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                 }
-            }
-
-            HStack {
-                Text("Markdown: **bold** *italic* `code` — the quote above links this to its line.")
-                    .font(.caption2).foregroundStyle(.tertiary)
-                Spacer()
-                Button("Cancel") { model.cancelNoteDraft() }
-                Button("Save") {
-                    model.noteDraft = draft
-                    Task { await model.saveNoteDraft() }
-                }
-                .keyboardShortcut(.return, modifiers: .command)
             }
         }
-        .padding(18)
-        .frame(width: 560)
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("Markdown · ⌘↩ to save")
+                .font(.caption2).foregroundStyle(.tertiary)
+            Spacer()
+            Button("Cancel") { model.cancelNoteDraft() }
+                .keyboardShortcut(.escape, modifiers: [])
+            Button("Save") {
+                model.noteDraft = draft
+                Task { await model.saveNoteDraft() }
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func formatButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).frame(width: 20)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+
+    private func wrap(_ marker: String) {
+        draft.text += "\(marker)text\(marker)"
+    }
+
+    private func prefix(_ marker: String) {
+        if !draft.text.isEmpty && !draft.text.hasSuffix("\n") { draft.text += "\n" }
+        draft.text += marker
     }
 
     private func insert(_ word: String) {

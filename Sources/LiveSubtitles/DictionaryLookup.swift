@@ -12,8 +12,33 @@ import Foundation
 import NaturalLanguage
 
 enum DictionaryLookup {
+    /// The parsed entry, ready to lay out.
+    static func parsedEntry(for word: String) -> DictionaryEntry? {
+        rawEntry(for: word).flatMap(DictionaryParser.parse)
+    }
+
+    /// Opens the word in an online dictionary — the fallback when the Mac has no entry, and
+    /// the way to reach a learner's dictionary with Chinese explanations.
+    static func onlineSources(for word: String) -> [(String, URL)] {
+        let encoded = word.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? word
+        var sources: [(String, URL)] = []
+        if let url = URL(string: "https://www.youdao.com/result?word=\(encoded)&lang=en") {
+            sources.append(("有道词典", url))
+        }
+        if let url = URL(string: "https://dictionary.cambridge.org/dictionary/english/\(encoded)") {
+            sources.append(("Cambridge", url))
+        }
+        if let url = URL(string: "https://www.merriam-webster.com/dictionary/\(encoded)") {
+            sources.append(("Merriam-Webster", url))
+        }
+        if let url = URL(string: "https://www.oxfordlearnersdictionaries.com/definition/english/\(encoded)") {
+            sources.append(("Oxford Learner's", url))
+        }
+        return sources
+    }
+
     /// The full entry, or nil when no installed dictionary knows the word.
-    static func entry(for word: String) -> String? {
+    static func rawEntry(for word: String) -> String? {
         let trimmed = word.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard let raw = DCSCopyTextDefinition(nil, trimmed as CFString,

@@ -49,7 +49,7 @@ struct WordInspection: Identifiable, Equatable {
     let word: String
     let lemma: String
     let cueID: Int64?
-    var definition: String?
+    var entry: DictionaryEntry?
     var translation: String?
 
     var id: String { "\(cueID ?? -1)-\(lemma)" }
@@ -441,15 +441,15 @@ final class LibraryModel: ObservableObject {
         let lemma = DictionaryLookup.lemma(of: word)
         guard let cue else {
             inspection = WordInspection(word: word, lemma: lemma, cueID: nil,
-                                        definition: DictionaryLookup.entry(for: lemma)
-                                            ?? DictionaryLookup.entry(for: word))
+                                        entry: DictionaryLookup.parsedEntry(for: lemma)
+                                            ?? DictionaryLookup.parsedEntry(for: word))
             occurrences = []
             return
         }
         selectedCueID = cue.id
         inspection = WordInspection(word: word, lemma: lemma, cueID: cue.id,
-                                    definition: DictionaryLookup.entry(for: lemma)
-                                        ?? DictionaryLookup.entry(for: word))
+                                    entry: DictionaryLookup.parsedEntry(for: lemma)
+                                        ?? DictionaryLookup.parsedEntry(for: word))
         inspection?.translation = nil
         if let existing = glosses[lemma] { inspection?.translation = existing }
         requestGloss(for: lemma)
