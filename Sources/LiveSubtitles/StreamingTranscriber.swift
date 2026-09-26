@@ -3,43 +3,74 @@
 //  LiveSubtitles
 //
 //  Streaming English speech-to-text on the Apple Neural Engine, built on
-//  Parakeet EOU (FluidAudio).
+//  FluidAudio's streaming ASR models.
 //
-//  Parakeet EOU is a cache-aware streaming model: it decodes one chunk at a time
-//  and reports partial text continuously, so words reach the screen about as fast
-//  as they are spoken.
+//  Everything below talks to the generic `StreamingAsrManager` protocol, so the
+//  model is a setting rather than a hard-coded choice. Three families are offered:
+//
+//    Parakeet EOU 120M      - smallest and lowest latency, but no punctuation.
+//    Parakeet Unified 0.6B  - 5x the parameters, punctuated and capitalised,
+//                             with a low-latency tier that keeps look-ahead.
+//    Nemotron 0.6B          - alternative large English model.
 //
 //  Two engine behaviours shape this wrapper:
 //
-//   1. Its callbacks report the *whole transcript so far*, so the part already
+//   1. The callbacks report the *whole transcript so far*, so the part already
 //      turned into cues is stripped off and only the new tail is displayed.
 //
-//   2. Its end-of-utterance latch can only confirm once per stream (see
-//      `evaluateEouDebounce`: `!alreadyConfirmed`), so cues cannot be driven by it
-//      without calling `reset()` - which would wipe the encoder context (worse
-//      accuracy) and clip up to a chunk of audio (lost syllables in fast dialogue).
-//      Cue boundaries are therefore derived here from the audio itself, and the
-//      engine is never reset.
-//
-//  Everything below the public API runs on one ordered consumer, so the audio is
-//  fed to the model in order and the model is only ever touched from one place.
+//   2. Cue boundaries are derived here, from the audio and the clock. EOU models
+//      latch their end-of-utterance signal after the first confirmation and the
+//      other families do not expose one at all, so nothing depends on it. Pause
+//      detection runs on the audio level, because every one of these models keeps
+//      emitting hallucinated words through silence, which defeats a text timer.
 //
 
 import Foundation
 import AVFoundation
 import FluidAudio
 
-/// Streaming chunk size, exposed without leaking FluidAudio's types.
-enum CaptionChunk: Int {
-    case ms160 = 160
-    case ms320 = 320
-    case ms1280 = 1280
+/// The streaming models offered in Settings.
+enum SpeechModel: String, CaseIterable, Identifiable {
+    case eou160 = "parakeet-eou-160ms"
+    case eou320 = "parakeet-eou-320ms"
+    case unified320 = "parakeet-unified-320ms"
+    case unified640 = "parakeet-unified-640ms"
+    case nemotron560 = "nemotron-560ms"
 
-    var fluidChunkSize: StreamingChunkSize {
+    var id: String { rawValue }
+
+    /// Quality-first default: the 0.6B model is punctuated and noticeably more
+    /// accurate for ~0.2 s more latency than the 120M EOU model.
+    static let `default`: SpeechModel = .unified320
+
+    private var variant: StreamingModelVariant? { StreamingModelVariant(rawValue: rawValue) }
+
+    var title: String { variant?.displayName ?? rawValue }
+
+    /// Shown under the picker so the trade-off is visible without reading docs.
+    var note: String {
         switch self {
-        case .ms160: return .ms160
-        case .ms320: return .ms320
-        case .ms1280: return .ms1280
+        case .eou160:     return "120M · lowest latency · no punctuation"
+        case .eou320:     return "120M · slightly more accurate"
+        case .unified320: return "0.6B · best quality at low latency · punctuated"
+        case .unified640: return "0.6B · same accuracy, less work per second"
+        case .nemotron560: return "0.6B · alternative large English model"
+        }
+    }
+
+    /// Build the streaming manager. EOU needs its debounce wired into the initialiser,
+    /// which FluidAudio's generic factory does not expose, so it is special-cased.
+    func makeManager(eouDebounceMs: Int) -> any StreamingAsrManager {
+        switch self {
+        case .eou160:
+            return StreamingEouAsrManager(chunkSize: .ms160, eouDebounceMs: eouDebounceMs)
+        case .eou320:
+            return StreamingEouAsrManager(chunkSize: .ms320, eouDebounceMs: eouDebounceMs)
+        case .unified320, .unified640, .nemotron560:
+            if let variant {
+                return variant.createManager()
+            }
+            return StreamingEouAsrManager(chunkSize: .ms160, eouDebounceMs: eouDebounceMs)
         }
     }
 }
@@ -52,16 +83,13 @@ struct CaptionUpdate {
         /// A finished cue, safe to export.
         case utterance
         /// The audio itself has been quiet long enough that the next words should
-        /// start a new line. Detected from the audio, not from the model's output:
-        /// the model keeps emitting hallucinated words through silence, so "no new
-        /// text" is not a usable pause signal.
+        /// start a new line.
         case pause
     }
 
     let kind: Kind
     let text: String
-    /// Absolute cue bounds in milliseconds since capture started (utterances only),
-    /// taken from the model's own token alignment rather than from wall-clock.
+    /// Absolute cue bounds in milliseconds since capture started (utterances only).
     var startMs: Int = 0
     var endMs: Int = 0
 }
@@ -87,18 +115,13 @@ private final class Mailbox<Value>: @unchecked Sendable {
 }
 
 final class StreamingTranscriber {
-    /// A cue ends once the model has produced no new words for this long. Using the
-    /// model's own output as the pause signal avoids tuning an energy threshold
-    /// against whatever background music the show happens to have.
-    private static let pauseToEndCueMs = 700
-    /// ...but only if the cue already says something worth showing.
-    private static let minimumCueMs = 1000
-    /// Never let a cue grow past this, even through wall-to-wall dialogue.
-    private static let maximumCueWords = 22
-
     /// Set LIVESUBTITLES_DEBUG=1 to trace latency, cues and pause detection.
     private static let debugLogging = ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil
 
+    /// A cue ends once the model has produced no new words for this long.
+    private static let pauseToEndCueMs = 700
+    /// Never let a cue grow past this, even through wall-to-wall dialogue.
+    private static let maximumCueWords = 22
     /// How fast the adaptive peak decays per 20 ms buffer (~1 dB per second).
     private static let peakDecay: Float = 0.998
     /// Audio this far below the recent peak counts as quiet.
@@ -106,17 +129,16 @@ final class StreamingTranscriber {
     /// ...but never treat near-silence in a very quiet mix as speech.
     private static let absoluteFloor: Float = 0.0015
 
-    private let manager: StreamingEouAsrManager
+    private let manager: any StreamingAsrManager
     private let pauseMs: Int
     private var pump: Task<Void, Never>?
 
     /// - Parameters:
-    ///   - chunk: `.ms160` = minimum latency, `.ms320` / `.ms1280` = more accurate.
-    ///   - eouDebounceMs: how much silence the model wants before it calls an utterance done.
+    ///   - model: which streaming model to run; larger models are more accurate.
+    ///   - eouDebounceMs: how much silence an EOU model wants before it calls an utterance done.
     ///   - pauseMs: how much quiet audio ends the current line. 0 disables it.
-    init(chunk: CaptionChunk = .ms160, eouDebounceMs: Int = 600, pauseMs: Int = 3000) {
-        manager = StreamingEouAsrManager(chunkSize: chunk.fluidChunkSize,
-                                         eouDebounceMs: eouDebounceMs)
+    init(model: SpeechModel = .default, eouDebounceMs: Int = 600, pauseMs: Int = 3000) {
+        manager = model.makeManager(eouDebounceMs: eouDebounceMs)
         self.pauseMs = pauseMs
     }
 
@@ -130,7 +152,7 @@ final class StreamingTranscriber {
         )
 
         let partials = Mailbox<String>()
-        await manager.setPartialCallback { text in
+        await manager.setPartialTranscriptCallback { text in
             partials.store(text)
         }
 
@@ -142,12 +164,9 @@ final class StreamingTranscriber {
             var transcript = ""
             var consumed = 0          // characters already turned into cues
             var samplesFed = 0
-            var tokenCursor = 0       // index of the first token of the current cue
+            var cueOpenMs = 0         // when the current cue's first words appeared
             var msSinceNewWords = 0
             var lastLive = ""
-            // Pause detection runs on the audio, independently of what the model
-            // decides to emit. `peakLevel` follows the loudest audio of the last few
-            // seconds so the threshold adapts to the show's own volume.
             var peakLevel: Float = 0
             var quietMs = 0
             var pauseAnnounced = false
@@ -159,7 +178,9 @@ final class StreamingTranscriber {
 
                     let frames = Int(buffer.frameLength)
                     samplesFed += frames
+                    let nowMs = samplesFed / 16
 
+                    // ---- Pause detection, on the audio itself -------------------
                     let energy = Self.rms(buffer)
                     peakLevel = max(energy, peakLevel * Self.peakDecay)
                     let isQuiet = energy < max(Self.absoluteFloor, peakLevel * Self.quietRatio)
@@ -182,8 +203,7 @@ final class StreamingTranscriber {
                         continuation.yield(CaptionUpdate(kind: .pause, text: ""))
                     }
 
-                    // The model only reports when it decoded something, so "no news"
-                    // counts as a pause. All O(1) work, no audio analysis.
+                    // ---- Has the model produced anything new? -------------------
                     if let latest = partials.take(), latest != transcript {
                         transcript = latest
                         msSinceNewWords = 0
@@ -197,26 +217,33 @@ final class StreamingTranscriber {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !pending.isEmpty else { continue }
 
-                    let nowMs = samplesFed / 16
+                    if cueOpenMs == 0 { cueOpenMs = nowMs }
+
                     let words = pending.split(separator: " ").count
                     let ended = msSinceNewWords >= Self.pauseToEndCueMs
                     let tooLong = words >= Self.maximumCueWords
 
                     if ended || tooLong {
-                        // One actor call per cue: the token timeline gives the real speech
-                        // bounds, so exported .srt lines line up with the audio.
-                        let stamps = await manager.getTokenTimestampsMs()
-                        let endMs = stamps.last ?? nowMs
-                        let startMs = tokenCursor < stamps.count ? stamps[tokenCursor] : endMs
-                        tokenCursor = stamps.count
-                        continuation.yield(CaptionUpdate(kind: .utterance,
-                                                         text: pending,
-                                                         startMs: startMs,
-                                                         endMs: endMs))
+                        // Cue bounds come from the audio clock, so they line up with
+                        // playback for every model family.
+                        let endMs = max(cueOpenMs + 300, nowMs - msSinceNewWords)
+                        // The models occasionally emit a bare "?" or "." for noise;
+                        // a cue with no actual words is not worth showing or exporting.
+                        if pending.contains(where: { $0.isLetter || $0.isNumber }) {
+                            continuation.yield(CaptionUpdate(kind: .utterance,
+                                                             text: pending,
+                                                             startMs: cueOpenMs,
+                                                             endMs: endMs))
+                        } else if Self.debugLogging {
+                            print("[cue] dropped wordless \(pending)")
+                        }
                         consumed = transcript.count
+                        cueOpenMs = 0
                         msSinceNewWords = 0
                         lastLive = ""
                     } else if pending != lastLive {
+                        // Only push a partial when it actually changed: the model reports
+                        // once per chunk, but we are called once per 20 ms buffer.
                         continuation.yield(CaptionUpdate(kind: .partial, text: pending))
                         lastLive = pending
                     }
@@ -226,11 +253,11 @@ final class StreamingTranscriber {
                 let tail = String(transcript.dropFirst(consumed))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if !tail.isEmpty {
-                    let stamps = await manager.getTokenTimestampsMs()
+                    let nowMs = samplesFed / 16
                     continuation.yield(CaptionUpdate(kind: .utterance,
                                                      text: tail,
-                                                     startMs: tokenCursor < stamps.count ? stamps[tokenCursor] : 0,
-                                                     endMs: stamps.last ?? samplesFed / 16))
+                                                     startMs: cueOpenMs == 0 ? nowMs : cueOpenMs,
+                                                     endMs: nowMs))
                 }
             } catch {
                 print("[transcriber] audio pump stopped: \(error.localizedDescription)")

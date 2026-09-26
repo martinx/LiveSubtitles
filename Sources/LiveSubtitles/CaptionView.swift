@@ -3,12 +3,17 @@
 //  LiveSubtitles
 //
 //  The finished sentences and the sentence still being spoken are rendered as
-//  *separate* lines. That is what makes the caption behave like YouTube's: the
-//  in-progress sentence can never run on from the end of the previous one, it
-//  always starts on a fresh line and pushes the older lines up.
+//  *separate* lines, so the in-progress sentence can never run on from the end of
+//  the previous one - it always starts on a fresh line and pushes older text up.
 //
-//  Older lines scroll off because `truncationMode(.head)` drops from the top once
-//  the line budget is used up.
+//  The line budget is split between them:
+//
+//    Max lines = 1 -> the current sentence only
+//    Max lines = 2 -> previous sentence + current sentence (classic subtitles)
+//    Max lines = 3+ -> up to two lines for the sentence being spoken, the rest
+//                      for what came before
+//
+//  Older lines scroll off because `truncationMode(.head)` drops from the top.
 //
 
 import SwiftUI
@@ -22,21 +27,33 @@ struct CaptionView: View {
         model.hasText || !model.status.isEmpty
     }
 
-    /// While a sentence is in progress it gets a line of its own, so the finished
-    /// sentences are limited to the remaining lines.
+    /// The sentence being spoken gets the extra room: two lines once there is space
+    /// for it, so a long sentence wraps instead of being cut off after one line.
+    private var liveLineLimit: Int {
+        settings.lineLimit >= 3 ? 2 : 1
+    }
+
+    /// Everything left over goes to the finished sentences. Zero means single-line
+    /// mode, where only the current sentence is shown.
     private var committedLineLimit: Int {
-        model.live.isEmpty ? settings.lineLimit : max(1, settings.lineLimit - 1)
+        guard !model.live.isEmpty else { return settings.lineLimit }
+        return max(0, settings.lineLimit - liveLineLimit)
     }
 
     var body: some View {
         content
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .padding(.horizontal, 26)
             .padding(.vertical, 14)
+            // Full-width bar...
+            .frame(maxWidth: .infinity)
+            // ...whose *height* hugs the text, so a large Max lines setting does not
+            // leave a permanent black block around one line of captions.
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(hasContent ? Color.black.opacity(settings.backgroundOpacity) : Color.clear)
             )
+            // Anchored to the bottom of the panel's reserved area.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .opacity(model.showsCaption ? 1 : 0)
             .animation(.easeOut(duration: 0.28), value: model.showsCaption)
     }
@@ -45,7 +62,7 @@ struct CaptionView: View {
     private var content: some View {
         if model.hasText {
             VStack(spacing: 3) {
-                if !model.committed.isEmpty {
+                if committedLineLimit > 0, !model.committed.isEmpty {
                     Text(model.committed)
                         .foregroundStyle(.white)
                         .lineLimit(committedLineLimit)
@@ -56,7 +73,7 @@ struct CaptionView: View {
                     Text(model.live)
                         // Dimmer, so the viewer can tell the tail is still being revised.
                         .foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(1)
+                        .lineLimit(liveLineLimit)
                         .truncationMode(.head)
                 }
             }

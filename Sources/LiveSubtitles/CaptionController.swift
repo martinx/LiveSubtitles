@@ -46,6 +46,13 @@ final class CaptionController {
     func start() {
         showPanel()
         restart()
+
+        // LIVESUBTITLES_OPEN_SETTINGS=1 opens the settings window on launch.
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_OPEN_SETTINGS"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.openSettings()
+            }
+        }
     }
 
     func restart() {
@@ -66,8 +73,10 @@ final class CaptionController {
     func openSettings() {
         settingsWindow.show(
             settings: settings,
+            transcript: transcript,
             onApplyEngine: { [weak self] in self?.restart() },
             onExport: { [weak self] in self?.exportTranscript() },
+            onCopy: { [weak self] in self?.copyTranscript() },
             onClear: { [weak self] in self?.clearSession() }
         )
     }
@@ -82,12 +91,12 @@ final class CaptionController {
     }
 
     private func run() async {
-        captions.setStatus("Loading speech model…")
+        captions.setStatus("Loading speech model… (first use downloads it)")
         captions.clear()
 
-        let chunk = CaptionChunk(rawValue: settings.chunkSizeMs) ?? .ms160
+        let model = SpeechModel(rawValue: settings.modelID) ?? .default
         let transcriber = StreamingTranscriber(
-            chunk: chunk,
+            model: model,
             eouDebounceMs: settings.eouDebounceMs,
             pauseMs: Int(settings.newLineAfterSilence * 1000)
         )

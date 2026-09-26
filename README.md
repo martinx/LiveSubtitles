@@ -72,16 +72,43 @@ Click the captions icon in the menu bar:
 The overlay itself is click-through and never takes focus, so it can sit over a
 full-screen video without interrupting playback.
 
+## Models
+
+The engine is a setting, not a hard-coded choice. All of them are English, on-device,
+and run on the Neural Engine.
+
+| Model | Params | First word | Punctuation | Download |
+|---|---|---|---|---|
+| Parakeet EOU @160 ms | 120M | **0.63 s** | no | 433 MB |
+| Parakeet EOU @320 ms | 120M | ~0.7 s | no | 433 MB |
+| **Parakeet Unified @320 ms** (default) | 0.6B | 0.86 s | **yes** | 594 MB |
+| Parakeet Unified @640 ms | 0.6B | ~1.0 s | yes | 594 MB |
+| Nemotron @560 ms | 0.6B | ~0.8 s | yes | several hundred MB |
+
+Measured on an M3 against a known sentence ("Quantum mechanics explains the behaviour
+of very small particles"):
+
+| | EOU 120M @160 ms | Unified 0.6B @320 ms |
+|---|---|---|
+| First word on screen | 0.63 s | 0.86 s |
+| Transcript | "...very small **part of**" | "...very small **particles**." |
+| Style | run-on lowercase | punctuated and capitalised |
+
+The default is the 0.6B model: it costs ~0.2 s of latency and buys correct words plus
+real punctuation and capitalisation. Switch to EOU @160 ms in Settings if you would
+rather have the lowest possible latency.
+
 ## Settings
 
 | Setting | Notes |
 |---|---|
-| Streaming chunk | 160 ms = lowest latency, 320/1280 ms = more accurate. Needs **Apply & Restart Engine**. |
+| **Model** | Which streaming speech model to run. Needs **Apply & Restart Engine**; larger models download on first use. |
 | End of sentence after | How much silence closes a subtitle line. Needs **Apply & Restart Engine**. |
 | **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. The last line stays readable during the pause; the break is applied when speech resumes. |
 | **Keep captions on screen** | Stop the overlay fading out during quiet stretches. |
 | **Drag to reposition** | The overlay is click-through by default. Switch this on to grab it and put it where you want; the spot is remembered across launches. **While it is on the overlay captures the mouse**, so clicks in its area no longer reach the video — turn it back off once it is where you want it. **Reset overlay position** goes back to the *Distance from bottom* setting. |
-| Font size / Width / Background / Distance from bottom / Max lines | Apply immediately |
+| Font size / Width / Background / Distance from bottom | Apply immediately |
+| Max lines | 1–5. 1 = current sentence only, 2 = previous line above it, 3+ gives the current sentence two lines and keeps more history. |
 
 Note: once you have dragged the overlay, the saved position wins over *Distance from
 bottom* until you press **Reset overlay position**.

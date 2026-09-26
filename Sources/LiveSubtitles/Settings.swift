@@ -12,7 +12,8 @@ import CoreGraphics
 
 final class Settings: ObservableObject {
     private enum Key {
-        static let chunkSizeMs = "chunkSizeMs"
+        static let modelID = "modelID"
+        static let chunkSizeMs = "chunkSizeMs"   // legacy, read once for migration
         static let eouDebounceMs = "eouDebounceMs"
         static let fontSize = "fontSize"
         static let widthFraction = "widthFraction"
@@ -29,8 +30,9 @@ final class Settings: ObservableObject {
 
     private let defaults: UserDefaults
 
-    /// Streaming chunk: 160 ms is the lowest latency, larger is more accurate.
-    @Published var chunkSizeMs: Int { didSet { defaults.set(chunkSizeMs, forKey: Key.chunkSizeMs) } }
+    /// Which streaming model to run. Larger models are more accurate; each one
+    /// downloads on first use.
+    @Published var modelID: String { didSet { defaults.set(modelID, forKey: Key.modelID) } }
     /// Silence that ends a sentence. Lower feels snappier but splits fast dialogue.
     @Published var eouDebounceMs: Int { didSet { defaults.set(eouDebounceMs, forKey: Key.eouDebounceMs) } }
 
@@ -71,7 +73,7 @@ final class Settings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: [
-            Key.chunkSizeMs: 160,
+            Key.modelID: SpeechModel.default.rawValue,
             Key.eouDebounceMs: 600,
             Key.fontSize: 28.0,
             Key.widthFraction: 0.72,
@@ -85,7 +87,15 @@ final class Settings: ObservableObject {
             Key.panelX: 0.0,
             Key.panelY: 0.0,
         ])
-        chunkSizeMs = defaults.integer(forKey: Key.chunkSizeMs)
+        // Migrate the old chunk-size setting the first time this version runs.
+        if let stored = defaults.string(forKey: Key.modelID), !stored.isEmpty {
+            modelID = stored
+        } else {
+            switch defaults.integer(forKey: Key.chunkSizeMs) {
+            case 320: modelID = SpeechModel.eou320.rawValue
+            default: modelID = SpeechModel.default.rawValue
+            }
+        }
         eouDebounceMs = defaults.integer(forKey: Key.eouDebounceMs)
         fontSize = defaults.double(forKey: Key.fontSize)
         widthFraction = defaults.double(forKey: Key.widthFraction)
