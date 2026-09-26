@@ -2,8 +2,8 @@
 //  SettingsWindow.swift
 //  LiveSubtitles
 //
-//  A small settings window. Display options apply immediately; the two engine
-//  options need "Apply & Restart Engine".
+//  A small settings window. Display and behaviour options apply immediately; the
+//  two engine options need "Apply & Restart Engine".
 //
 
 import AppKit
@@ -17,7 +17,7 @@ struct SettingsView: View {
     let onClear: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Performance")
                 .font(.headline)
 
@@ -35,6 +35,31 @@ struct SettingsView: View {
             }
 
             Button("Apply & Restart Engine", action: onApplyEngine)
+
+            Divider()
+
+            Text("Behaviour")
+                .font(.headline)
+
+            Picker("New line after silence", selection: $settings.newLineAfterSilence) {
+                Text("Off — keep appending").tag(0.0)
+                Text("2 s").tag(2.0)
+                Text("3 s").tag(3.0)
+                Text("5 s").tag(5.0)
+                Text("8 s").tag(8.0)
+            }
+
+            Toggle("Keep captions on screen (never fade out)", isOn: $settings.alwaysVisible)
+            Toggle("Drag to reposition the overlay", isOn: $settings.draggable)
+
+            HStack {
+                Button("Reset overlay position", action: settings.resetPosition)
+                Text(settings.draggable
+                     ? "Drag the caption where you want it — the spot is remembered."
+                     : "Turn on dragging to move the caption, then reset here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Divider()
 
@@ -61,7 +86,7 @@ struct SettingsView: View {
             }
         }
         .padding(22)
-        .frame(width: 460)
+        .frame(width: 470)
     }
 
     private func slider(_ title: String,

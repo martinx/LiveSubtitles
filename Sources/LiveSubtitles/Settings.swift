@@ -2,8 +2,8 @@
 //  Settings.swift
 //  LiveSubtitles
 //
-//  UserDefaults-backed settings. Display settings apply live; the two engine
-//  settings take effect on the next "Restart Engine".
+//  UserDefaults-backed settings. Appearance and behaviour apply live; the two
+//  engine settings take effect on the next "Restart Engine".
 //
 
 import Foundation
@@ -18,6 +18,12 @@ final class Settings: ObservableObject {
         static let backgroundOpacity = "backgroundOpacity"
         static let bottomInset = "bottomInset"
         static let lineLimit = "lineLimit"
+        static let newLineAfterSilence = "newLineAfterSilence"
+        static let alwaysVisible = "alwaysVisible"
+        static let draggable = "draggable"
+        static let hasCustomPosition = "hasCustomPosition"
+        static let panelX = "panelX"
+        static let panelY = "panelY"
     }
 
     private let defaults: UserDefaults
@@ -33,6 +39,22 @@ final class Settings: ObservableObject {
     @Published var bottomInset: Double { didSet { defaults.set(bottomInset, forKey: Key.bottomInset) } }
     @Published var lineLimit: Int { didSet { defaults.set(lineLimit, forKey: Key.lineLimit) } }
 
+    // MARK: - Behaviour
+
+    /// After this much silence the next sentence starts on a **fresh line** instead
+    /// of being appended to the previous one. 0 disables the break.
+    @Published var newLineAfterSilence: Double { didSet { defaults.set(newLineAfterSilence, forKey: Key.newLineAfterSilence) } }
+    /// Keep the caption on screen through quiet stretches instead of fading it out.
+    @Published var alwaysVisible: Bool { didSet { defaults.set(alwaysVisible, forKey: Key.alwaysVisible) } }
+    /// Make the overlay draggable. Off means it is click-through and fixed in place.
+    @Published var draggable: Bool { didSet { defaults.set(draggable, forKey: Key.draggable) } }
+
+    // MARK: - Overlay position
+
+    @Published var hasCustomPosition: Bool { didSet { defaults.set(hasCustomPosition, forKey: Key.hasCustomPosition) } }
+    @Published var panelX: Double { didSet { defaults.set(panelX, forKey: Key.panelX) } }
+    @Published var panelY: Double { didSet { defaults.set(panelY, forKey: Key.panelY) } }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         defaults.register(defaults: [
@@ -43,6 +65,12 @@ final class Settings: ObservableObject {
             Key.backgroundOpacity: 0.55,
             Key.bottomInset: 110.0,
             Key.lineLimit: 2,
+            Key.newLineAfterSilence: 3.0,
+            Key.alwaysVisible: false,
+            Key.draggable: false,
+            Key.hasCustomPosition: false,
+            Key.panelX: 0.0,
+            Key.panelY: 0.0,
         ])
         chunkSizeMs = defaults.integer(forKey: Key.chunkSizeMs)
         eouDebounceMs = defaults.integer(forKey: Key.eouDebounceMs)
@@ -51,5 +79,16 @@ final class Settings: ObservableObject {
         backgroundOpacity = defaults.double(forKey: Key.backgroundOpacity)
         bottomInset = defaults.double(forKey: Key.bottomInset)
         lineLimit = defaults.integer(forKey: Key.lineLimit)
+        newLineAfterSilence = defaults.double(forKey: Key.newLineAfterSilence)
+        alwaysVisible = defaults.bool(forKey: Key.alwaysVisible)
+        draggable = defaults.bool(forKey: Key.draggable)
+        hasCustomPosition = defaults.bool(forKey: Key.hasCustomPosition)
+        panelX = defaults.double(forKey: Key.panelX)
+        panelY = defaults.double(forKey: Key.panelY)
+    }
+
+    /// Forget the dragged position and go back to the configured bottom-centre spot.
+    func resetPosition() {
+        hasCustomPosition = false
     }
 }

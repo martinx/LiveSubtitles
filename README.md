@@ -51,7 +51,13 @@ full-screen video without interrupting playback.
 |---|---|
 | Streaming chunk | 160 ms = lowest latency, 320/1280 ms = more accurate. Needs **Apply & Restart Engine**. |
 | End of sentence after | How much silence closes a subtitle line. Needs **Apply & Restart Engine**. |
+| **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. The last line stays readable during the pause; the break is applied when speech resumes. |
+| **Keep captions on screen** | Stop the overlay fading out during quiet stretches. |
+| **Drag to reposition** | The overlay is click-through by default. Switch this on to grab it and put it where you want; the spot is remembered. **Reset overlay position** goes back to the *Distance from bottom* setting. |
 | Font size / Width / Background / Distance from bottom / Max lines | Apply immediately |
+
+Note: once you have dragged the overlay, the saved position wins over *Distance from
+bottom* until you press **Reset overlay position**.
 
 ## Export format
 

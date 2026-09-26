@@ -12,8 +12,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class CaptionController {
-    let settings = Settings()
-    let captions = CaptionModel()
+    let settings: Settings
+    let captions: CaptionModel
     let transcript = TranscriptStore()
 
     private var capture: SystemAudioCapture?
@@ -26,12 +26,18 @@ final class CaptionController {
     private lazy var settingsWindow = SettingsWindow()
 
     init() {
-        // Re-lay-out the overlay whenever an appearance setting changes.
+        let settings = Settings()
+        self.settings = settings
+        self.captions = CaptionModel(settings: settings)
+
+        // Re-apply the overlay whenever a setting changes. `objectWillChange` fires
+        // before the value is stored, hence the hop to the next runloop turn.
         settings.objectWillChange
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.panel?.applyLayout(settings: self.settings)
+                    guard let self, let panel = self.panel else { return }
+                    panel.applyLayout(settings: self.settings)
+                    panel.applyInteraction(settings: self.settings)
                 }
             }
             .store(in: &cancellables)
@@ -91,7 +97,10 @@ final class CaptionController {
             let audio = capture.makeAudioStream()
             let updates = try await transcriber.updates(from: audio)
             try await capture.start()
-            captions.setStatus("Listening…")
+
+            // Nothing to show while listening quietly; the panel stays empty until
+            // the first words arrive.
+            captions.setStatus("")
 
             consumer = Task { @MainActor [weak self] in
                 for await update in updates {
