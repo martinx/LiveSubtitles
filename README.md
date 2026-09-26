@@ -49,18 +49,62 @@ Privacy & Security → Screen Recording*.
 
 ## Using it
 
-Click the captions bubble in the menu bar:
+Click the captions bubble in the menu bar. The first line is the current state, and the
+rest is the usual set of actions:
 
 | Item | What it does |
 |---|---|
-| Restart Engine | Reloads the model and restarts capture. **Your transcript is kept.** |
+| *(state)* | `Listening` / `Paused` / `Stopped` |
+| Start Listening | Loads the model if needed and begins capturing |
+| Pause Listening | Stops capturing, **keeps the model loaded** |
+| Stop Listening | Stops capturing and **releases the model** |
 | Clear Captions | Empties the on-screen text *and* the session transcript |
 | Export Transcript… | Saves the session as `.srt` (or `.txt`) |
 | Copy Transcript | Puts the whole transcript on the clipboard |
-| Settings… | Engine, behaviour and appearance options |
+| Settings… | Engine, behaviour, appearance and shortcut options |
+| Restart Engine | Rebuilds the engine after an engine setting changed |
 | Quit | Stops capture and exits |
 
-The menu-bar icon switches to a filled bubble while capturing.
+The menu-bar icon reflects the state: a filled bubble while listening, a pause symbol
+while paused, an outline bubble when stopped.
+
+## Start, pause and stop
+
+Three states, because "stop" and "pause" cost different things:
+
+| State | Capture | Model | Coming back |
+|---|---|---|---|
+| **Listening** | running | loaded | — |
+| **Paused** | stopped | still loaded | instant |
+| **Stopped** | stopped | released (~600 MB back) | reloads the model, ~2 s |
+
+Pause exists because the common case is stepping away for a minute: paying the model
+load again would defeat the point. Stop exists because the common case there is "I am
+not using this right now", where holding 600 MB is the wrong trade.
+
+**The transcript is never touched by pausing or stopping** — only *Clear Captions*
+empties it. You can stop mid-episode, come back, and export everything captured so far.
+
+Whether the app starts listening on launch is a setting (*Start listening when the app
+launches*, on by default).
+
+## Shortcuts
+
+Global, so they work while the video player is frontmost:
+
+| Action | Default |
+|---|---|
+| Start listening | ⌥⌘L |
+| Pause listening | ⌥⌘P |
+| Stop listening | ⌥⌘. |
+
+Change them in Settings → Shortcuts: click **Record**, press a combination containing at
+least one modifier, or **Clear** to unbind. Escape cancels, Delete clears. A combination
+another app already owns will silently not take effect.
+
+These use Carbon's `RegisterEventHotKey` rather than `NSEvent`'s global monitor, because
+monitoring the keyboard that way requires Accessibility permission — this app should not
+have to ask for that just so you can pause.
 
 The overlay is click-through and never takes focus, so it can sit over a full-screen
 video without interrupting playback.
@@ -103,6 +147,8 @@ the test sentence. Worth trying only if a particular show trips up Parakeet.
 
 | Setting | Notes |
 |---|---|
+| **Start listening when the app launches** | On by default. Turn off to launch idle and start with a shortcut. |
+| **Shortcuts** | Global Start / Pause / Stop bindings (own tab). |
 | **Model** | Which streaming speech model to run. Needs **Apply & Restart Engine**. |
 | End of sentence after | How much silence closes a subtitle line. Needs **Apply & Restart Engine**. |
 | **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. |
@@ -193,8 +239,8 @@ LIVESUBTITLES_DUMP_SRT=/tmp/out.srt ./run.sh     # mirror the transcript to disk
 LIVESUBTITLES_OPEN_SETTINGS=1 ./run.sh           # open the settings window on launch
 ```
 
-Trace tags: `[partial]`, `[utterance]`, `[pause]`, `[newline]`, `[state]`, `[drag]`,
-`[status]`, `[cue]`.
+Trace tags: `[partial]`, `[utterance]`, `[pause]`, `[newline]`, `[state]`, `[hotkey]`,
+`[drag]`, `[status]`, `[cue]`.
 
 ## Icon
 
@@ -213,6 +259,9 @@ python3 scripts/make-icon.py      # writes icon_1024.png + a size-legibility str
 Sources/LiveSubtitles/
 ├── App.swift                 entry point (accessory unless the Dock icon is on)
 ├── AppDelegate.swift         status item, status menu, app main menu, Dock state
+├── GlobalHotKeyCenter.swift  system-wide hot keys (Carbon)
+├── KeyShortcut.swift         a shortcut + its label and Carbon modifier mask
+├── ShortcutRecorder.swift    click-to-record shortcut field
 ├── CaptionController.swift   wires everything; owns export + settings window
 ├── SystemAudioCapture.swift  ScreenCaptureKit -> AsyncStream<AVAudioPCMBuffer>
 ├── StreamingTranscriber.swift multi-model streaming ASR + cue segmentation + pauses
