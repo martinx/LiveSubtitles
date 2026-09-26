@@ -107,8 +107,9 @@ final class CaptionPanel: NSPanel {
 
         case .leftMouseDragged:
             guard let grabOffset else { return event }
-            setFrameOrigin(NSPoint(x: location.x - grabOffset.x,
-                                   y: location.y - grabOffset.y))
+            setFrameOrigin(clamped(NSPoint(x: location.x - grabOffset.x,
+                                           y: location.y - grabOffset.y),
+                                   size: frame.size))
             return nil
 
         case .leftMouseUp:
@@ -125,6 +126,17 @@ final class CaptionPanel: NSPanel {
         }
     }
 
+    /// Keep the overlay reachable: dragging it past an edge must not be able to
+    /// strand it off-screen, where it cannot be grabbed again.
+    private func clamped(_ origin: NSPoint, size: NSSize) -> NSPoint {
+        guard let screen = NSScreen.main else { return origin }
+        let bounds = screen.visibleFrame
+        let maxX = max(bounds.minX, bounds.maxX - size.width)
+        let maxY = max(bounds.minY, bounds.maxY - size.height)
+        return NSPoint(x: min(max(origin.x, bounds.minX), maxX),
+                       y: min(max(origin.y, bounds.minY), maxY))
+    }
+
     // MARK: - Layout
 
     func applyLayout(settings: Settings) {
@@ -133,13 +145,16 @@ final class CaptionPanel: NSPanel {
         let width = min(visible.width - 60, visible.width * settings.widthFraction)
         let height = CGFloat(settings.lineLimit) * (settings.fontSize * 1.5) + 30
 
-        let origin: NSPoint
+        let requested: NSPoint
         if settings.hasCustomPosition {
-            origin = NSPoint(x: settings.panelX, y: settings.panelY)
+            requested = NSPoint(x: settings.panelX, y: settings.panelY)
         } else {
-            origin = NSPoint(x: visible.midX - width / 2,
-                             y: visible.minY + settings.bottomInset)
+            requested = NSPoint(x: visible.midX - width / 2,
+                                y: visible.minY + settings.bottomInset)
         }
-        setFrame(NSRect(origin: origin, size: NSSize(width: width, height: height)), display: true)
+        // A saved position may be off-screen (dragged past an edge, or the display
+        // layout changed), so it is clamped on the way back in too.
+        let size = NSSize(width: width, height: height)
+        setFrame(NSRect(origin: clamped(requested, size: size), size: size), display: true)
     }
 }
