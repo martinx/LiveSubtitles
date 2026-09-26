@@ -1,0 +1,203 @@
+//
+//  CaptionController.swift
+//  LiveSubtitles
+//
+//  Wires capture -> transcriber -> captions, keeps the session transcript, and
+//  serves the menu actions (restart, export, settings).
+//
+
+import AppKit
+import Combine
+import UniformTypeIdentifiers
+
+@MainActor
+final class CaptionController {
+    let settings = Settings()
+    let captions = CaptionModel()
+    let transcript = TranscriptStore()
+
+    private var capture: SystemAudioCapture?
+    private var transcriber: StreamingTranscriber?
+    private var panel: CaptionPanel?
+    private var consumer: Task<Void, Never>?
+    private var engineTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
+
+    private lazy var settingsWindow = SettingsWindow()
+
+    init() {
+        // Re-lay-out the overlay whenever an appearance setting changes.
+        settings.objectWillChange
+            .sink { [weak self] _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.panel?.applyLayout(settings: self.settings)
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    func start() {
+        showPanel()
+        restart()
+    }
+
+    func restart() {
+        engineTask?.cancel()
+        engineTask = Task { [weak self] in
+            guard let self else { return }
+            await self.teardown()
+            guard !Task.isCancelled else { return }
+            await self.run()
+        }
+    }
+
+    func clearSession() {
+        transcript.clear()
+        captions.clear()
+    }
+
+    func openSettings() {
+        settingsWindow.show(
+            settings: settings,
+            onApplyEngine: { [weak self] in self?.restart() },
+            onExport: { [weak self] in self?.exportTranscript() },
+            onClear: { [weak self] in self?.clearSession() }
+        )
+    }
+
+    // MARK: - Pipeline
+
+    private func showPanel() {
+        guard panel == nil else { return }
+        let panel = CaptionPanel(model: captions, settings: settings)
+        panel.orderFrontRegardless()
+        self.panel = panel
+    }
+
+    private func run() async {
+        captions.setStatus("Loading speech model…")
+        captions.clear()
+
+        let chunk = CaptionChunk(rawValue: settings.chunkSizeMs) ?? .ms160
+        let transcriber = StreamingTranscriber(chunk: chunk,
+                                               eouDebounceMs: settings.eouDebounceMs)
+        self.transcriber = transcriber
+
+        let capture = SystemAudioCapture()
+        self.capture = capture
+
+        do {
+            let audio = capture.makeAudioStream()
+            let updates = try await transcriber.updates(from: audio)
+            try await capture.start()
+            captions.setStatus("Listening…")
+
+            consumer = Task { @MainActor [weak self] in
+                for await update in updates {
+                    guard let self else { return }
+                    switch update.kind {
+                    case .partial:
+                        self.captions.applyPartial(update.text)
+
+                    case .utterance:
+                        let line = Self.readable(update.text)
+                        self.transcript.append(TranscriptCue(startMs: update.startMs,
+                                                             endMs: update.endMs,
+                                                             text: line))
+                        self.captions.applyUtterance(line)
+                        self.dumpSRTIfRequested()
+                    }
+                }
+            }
+        } catch {
+            captions.setStatus("Error: \(error.localizedDescription)")
+        }
+    }
+
+    private func teardown() async {
+        consumer?.cancel()
+        consumer = nil
+        await capture?.stop()
+        capture = nil
+        await transcriber?.stop()
+        transcriber = nil
+    }
+
+    // MARK: - Export
+
+    func exportTranscript() {
+        guard !transcript.isEmpty else {
+            presentInfo("Nothing to export yet — no speech has been captured.")
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.title = "Export Transcript"
+        panel.nameFieldStringValue = "LiveSubtitles-\(Self.fileStamp()).srt"
+        var types: [UTType] = []
+        if let srt = UTType(filenameExtension: "srt") {
+            types.append(srt)
+        }
+        types.append(.plainText)
+        panel.allowedContentTypes = types
+
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                guard let self else { return }
+                let isSRT = url.pathExtension.lowercased() == "srt"
+                let content = isSRT ? self.transcript.srt() : self.transcript.plainText
+                do {
+                    try content.write(to: url, atomically: true, encoding: .utf8)
+                } catch {
+                    self.presentInfo("Could not write the file: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    func copyTranscript() {
+        guard !transcript.isEmpty else {
+            presentInfo("Nothing to copy yet — no speech has been captured.")
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(transcript.plainText, forType: .string)
+    }
+
+    /// The streaming model emits lowercase text without punctuation; a light touch
+    /// makes exported subtitles readable.
+    private static func readable(_ text: String) -> String {
+        var line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return line }
+        line = line.prefix(1).uppercased() + line.dropFirst()
+        if let last = line.last, !".!?…".contains(last) {
+            line += "."
+        }
+        return line
+    }
+
+    /// Set LIVESUBTITLES_DUMP_SRT=/path/out.srt to mirror the session transcript to
+    /// disk as it is recognised - handy for checking export without opening the panel.
+    private func dumpSRTIfRequested() {
+        guard let path = ProcessInfo.processInfo.environment["LIVESUBTITLES_DUMP_SRT"] else { return }
+        try? transcript.srt().write(to: URL(fileURLWithPath: path), atomically: true, encoding: .utf8)
+    }
+
+    private func presentInfo(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.alertStyle = .informational
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private static func fileStamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmm"
+        return formatter.string(from: Date())
+    }
+}
