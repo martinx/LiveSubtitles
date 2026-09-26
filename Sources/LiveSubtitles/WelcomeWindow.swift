@@ -86,8 +86,9 @@ struct WelcomeView: View {
                             shortcutRow(settings.stopShortcut, "stop — releases the model")
                         }
 
-                        Text("Turn on **Drag to reposition** in Settings to move the bar; turn it "
-                             + "back off afterwards so clicks pass through again.")
+                        // One literal, so SwiftUI parses the markdown. Concatenated strings
+                        // are plain text and would show the asterisks.
+                        Text("Turn on **Drag to reposition** in Settings to move the bar; turn it back off afterwards so clicks pass through again.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
