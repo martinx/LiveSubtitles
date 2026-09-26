@@ -24,6 +24,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
 
+    # `secrets` is not an available context in a step-level `if`, so the flags it
+    # controls are computed once here and tested as env.
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+      HAS_API_KEY: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,7 +48,7 @@ jobs:
 
       # ---------------------------------------------------------------- signing ---
       - name: Import the Developer ID certificate
-        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -59,7 +65,7 @@ jobs:
             -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
-          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s "$KEYCHAIN" "$(security list-keychains -d user | tr -d '"')"
 
           IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
             | awk -F'"' '/Developer ID Application/{print $2; exit}')"
@@ -79,7 +85,7 @@ jobs:
 
       # ------------------------------------------------------------- notarising ---
       - name: Write the App Store Connect API key
-        if: ${{ secrets.APPLE_API_KEY_P8 != '' }}
+        if: env.HAS_API_KEY == 'true'
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
@@ -87,11 +93,11 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" | openssl base64 -d -A -out "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Package for notarisation
-        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         run: make dist
 
       - name: Notarise
-        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -117,7 +123,7 @@ jobs:
           make dist
 
       - name: Check Gatekeeper's verdict
-        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         run: |
           spctl --assess --type execute --verbose=4 build/LiveSubtitles.app || \
             echo "::warning::spctl rejected the bundle - it is signed but not notarised"
