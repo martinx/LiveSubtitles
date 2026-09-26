@@ -94,61 +94,58 @@ struct LibraryView: View {
     /// is a tree, and flattening it is what made a long history unmanageable.
     private var sidebar: some View {
         List(selection: $model.target) {
-            Label {
-                Text("All Sessions").font(.system(size: 13.5))
-            } icon: {
-                Image(systemName: "rectangle.stack")
-                    .font(.system(size: 13))
-                    .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
-            }
-            .tag(LibraryTarget.allSessions)
-            .sidebarRow()
-
-            if !model.folderTree.isEmpty {
-                Section("Folders") {
-                    OutlineGroup(model.folderTree, children: \.subfolders) { node in
-                        Label {
-                            Text(node.folder.name).font(.system(size: 13.5))
-                        } icon: {
-                            Image(systemName: "folder")
-                                .font(.system(size: 13))
-                                .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
-                        }
-                        .badge(node.totalSessions)
-                        .tag(LibraryTarget.folder(node.folder.id))
-                        .contextMenu { folderMenu(node.folder) }
+            Section("Library") {
+                sidebarRow("All Sessions", symbol: "rectangle.stack", tag: .allSessions)
+                    .contextMenu {
+                        Button("New Folder…") { folderPrompt = FolderPrompt(mode: .new(nil)) }
                     }
+
+                OutlineGroup(model.folderTree, children: \.subfolders) { node in
+                    Label {
+                        Text(node.folder.name).font(.system(size: 13.5))
+                    } icon: {
+                        Image(systemName: "folder")
+                            .font(.system(size: 13))
+                            .foregroundColor(.accentColor)
+                            .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+                    }
+                    .badge(node.totalSessions)
+                    .tag(LibraryTarget.folder(node.folder.id))
+                    .contextMenu { folderMenu(node.folder) }
                 }
+
+                // Always present, whether or not there are folders yet: a folder tree with no
+                // visible way to start one is a dead end, and a bar pinned to the bottom is
+                // the last place anyone looks.
+                Button {
+                    folderPrompt = FolderPrompt(mode: .new(nil))
+                } label: {
+                    Label {
+                        Text("New Folder").font(.system(size: 13.5))
+                    } icon: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .medium))
+                            .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .sidebarRow()
+                .selectionDisabled()
             }
 
             Section("Study") {
                 ForEach([LibrarySection.notebook, .favourites, .vocabulary, .writing, .statistics]) { item in
-                    Label {
-                        Text(item.title).font(.system(size: 13.5))
-                    } icon: {
-                        Image(systemName: item.symbol)
-                            .font(.system(size: 13))
-                            .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
-                    }
-                    .tag(LibraryTarget.section(item))
-                    .sidebarRow()
+                    sidebarRow(item.title, symbol: item.symbol, tag: .section(item))
                 }
             }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
-        .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 8) {
-                Button {
-                    folderPrompt = FolderPrompt(mode: .new(nil))
-                } label: {
-                    Label("New Folder", systemImage: "folder.badge.plus").font(.caption)
-                }
-                .buttonStyle(.borderless)
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-        }
+        // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
+        // sidebar is collapsed and looks like a stray button. The window has its own
+        // controls; this one is not wanted.
+        .toolbar(removing: .sidebarToggle)
         .sheet(item: $folderPrompt) { prompt in
             FolderPromptSheet(prompt: prompt) { name in
                 switch prompt.mode {
@@ -162,6 +159,19 @@ struct LibraryView: View {
                 folderPrompt = nil
             }
         }
+    }
+
+    /// One sidebar row, at the size the rest of the sidebar uses.
+    private func sidebarRow(_ title: String, symbol: String, tag: LibraryTarget) -> some View {
+        Label {
+            Text(title).font(.system(size: 13.5))
+        } icon: {
+            Image(systemName: symbol)
+                .font(.system(size: 13))
+                .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+        }
+        .tag(tag)
+        .sidebarRow()
     }
 
     @ViewBuilder
