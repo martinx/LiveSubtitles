@@ -159,7 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(action("Update to \(release.version)…", #selector(offerUpdate),
                                 symbol: "arrow.down.circle"))
         case .installing(let release):
-            menu.addItem(action("Installing \(release.version)…", #selector(offerUpdate),
+            menu.addItem(action("Installing \(release.version)…", #selector(checkForUpdates),
                                 symbol: "arrow.down.circle", enabled: false))
         default:
             menu.addItem(action("Check for Updates…", #selector(checkForUpdates),
@@ -316,7 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.messageText = "You're up to date"
             alert.informativeText = "\(AppInfo.name) \(AppInfo.version) is the latest release."
             alert.addButton(withTitle: "OK")
-        case .available(let release):
+        case .available:
             offerUpdate()
             return
         case .failed(let message):

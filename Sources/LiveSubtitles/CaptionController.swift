@@ -56,6 +56,8 @@ final class CaptionController {
     private var engineTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     private var hotKeySignature = ""
+    /// The engine options the running transcriber was built with.
+    private var engineSettingsSignature = ""
 
     private lazy var settingsWindow = SettingsWindow()
 
@@ -79,6 +81,7 @@ final class CaptionController {
                     guard let self else { return }
                     self.applyActivationPolicy()
                     self.syncHotKeys()
+                    self.applyEngineSettingsIfNeeded()
                     guard let panel = self.panel else { return }
                     panel.applyLayout(settings: self.settings)
                     panel.applyInteraction(settings: self.settings)
@@ -193,7 +196,7 @@ final class CaptionController {
     /// Engine settings are baked into the transcriber at construction, so a changed
     /// model or threshold means building a new one (and releasing the old model).
     private func makeOrReuseTranscriber() async -> StreamingTranscriber {
-        let signature = "\(settings.modelID)|\(settings.eouDebounceMs)|\(Int(settings.newLineAfterSilence))"
+        let signature = engineSettingsSignature
         if let transcriber, signature == transcriberSignature {
             return transcriber
         }
@@ -235,6 +238,26 @@ final class CaptionController {
                 }
             }
         }
+    }
+
+    /// Engine options are baked into the transcriber when it is constructed, so changing
+    /// one has to rebuild it. Doing that automatically is what makes the engine settings
+    /// as immediate as the cosmetic ones - no "apply and restart" step.
+    ///
+    /// Only while listening: a paused or stopped engine picks the new options up when it
+    /// is next started, and resuming listening on its own would be a surprise.
+    private func applyEngineSettingsIfNeeded() {
+        let signature = "\(settings.modelID)|\(settings.eouDebounceMs)|\(Int(settings.newLineAfterSilence))"
+
+        guard !engineSettingsSignature.isEmpty else {
+            engineSettingsSignature = signature
+            return
+        }
+        guard signature != engineSettingsSignature else { return }
+        engineSettingsSignature = signature
+
+        guard state == .listening else { return }
+        restartEngine()
     }
 
     // MARK: - Global shortcuts

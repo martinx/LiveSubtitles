@@ -11,7 +11,7 @@
 APP  := build/LiveSubtitles.app
 ZIP  := build/LiveSubtitles.zip
 
-.PHONY: all build debug run install icon update check-update dist package clean
+.PHONY: all build debug run install icon update check-update dist dmg package clean
 
 all: build
 
@@ -49,8 +49,12 @@ dist:
 	@cd build && ditto -c -k --sequesterRsrc --keepParent LiveSubtitles.app LiveSubtitles.zip
 	@echo "==> $(ZIP)"
 
-# Convenience for local use: build, then package.
-package: build dist
+# Drag-to-Applications disk image, also packaged without rebuilding.
+dmg:
+	@scripts/make-dmg.sh
+
+# Convenience for local use: build, then package both artefacts.
+package: build dist dmg
 
 clean:
 	@rm -rf build .build

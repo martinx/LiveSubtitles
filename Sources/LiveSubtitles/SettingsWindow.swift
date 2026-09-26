@@ -118,12 +118,14 @@ struct SettingsView: View {
                     Text("1.0 s of silence").tag(1000)
                     Text("1.3 s of silence").tag(1300)
                 }
-                Button("Apply & Restart Engine", action: onApplyEngine)
+                Button("Reload Engine", action: onApplyEngine)
             } header: {
                 Label("Speech model", systemImage: "waveform")
             } footer: {
-                Text("The engine is built when the model loads, so these apply after a "
-                     + "restart. Larger models download on first use; your transcript is kept.")
+                Text("Changes take effect straight away — the engine reloads itself in about "
+                     + "two seconds, and a newly selected model downloads on first use. Your "
+                     + "transcript is kept. Reload Engine is only needed if the engine stops "
+                     + "on its own.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

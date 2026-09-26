@@ -92,9 +92,13 @@ jobs:
           set -euo pipefail
           printf '%s' "$APPLE_API_KEY_P8" | openssl base64 -d -A -out "$RUNNER_TEMP/AuthKey.p8"
 
-      # Always: the zip is the release asset, signed or not.
+      # Always: these are the release assets, signed or not. The zip is what the in-app
+      # updater downloads; the disk image is the human-friendly download.
       - name: Package the release
         run: make dist
+
+      - name: Package the disk image
+        run: make dmg
 
       - name: Notarise
         if: env.HAS_SIGNING_CERT == 'true'
@@ -119,8 +123,9 @@ jobs:
           xcrun stapler staple build/LiveSubtitles.app
           xcrun stapler validate build/LiveSubtitles.app
 
-          # Re-zip so the stapled ticket travels with the download.
+          # Re-package so the stapled ticket travels with the downloads.
           make dist
+          make dmg
 
       - name: Check Gatekeeper's verdict
         if: env.HAS_SIGNING_CERT == 'true'
@@ -137,5 +142,6 @@ jobs:
           set -euo pipefail
           gh release create "$TAG" \
             build/LiveSubtitles.zip \
+            build/LiveSubtitles.dmg \
             --title "$TAG" \
             --generate-notes

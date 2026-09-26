@@ -14,6 +14,22 @@ All notable changes to this project are documented here. The format follows
   committed line behind the live text.
 - Automatic recovery when the capture stream stops (display change, permission change).
 
+## [0.1.2] - 2026-09-26
+
+### Changed
+
+- **Engine settings now apply immediately.** Changing the model, the sentence-end delay or
+  the new-line-after-silence delay reloads the engine on the spot instead of waiting for
+  an *Apply & Restart Engine* click. The button remains as a manual reload.
+- Releases now carry a **disk image** as well as the zip: open it and drag the app to
+  Applications. The zip is still what the in-app updater downloads.
+
+### Fixed
+
+- `make dist` no longer rebuilds before packaging. It was re-stamping the app without the
+  version the release tag supplied, and would have discarded a signature and any stapled
+  notarisation ticket.
+
 ## [0.1.1] - 2026-09-26
 
 ### Changed

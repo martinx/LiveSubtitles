@@ -40,7 +40,7 @@
 
   /* Brand left, section links right, one accent button at the end. */
   a.brand{display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--text)}
-  nav.links{display:flex; align-items:center; gap:22px; margin-left:32px}
+  nav.links{display:flex; align-items:center; gap:22px; margin-right:26px}
   nav.links a{font-size:14.5px; color:var(--muted); text-decoration:none; white-space:nowrap}
   nav.links a:hover{color:var(--text)}
   @media (max-width:880px){ nav.links{display:none} }
@@ -119,13 +119,13 @@
       <img src="favicon.png" alt="">
       <b>Live Subtitles</b>
     </a>
+    <span class="spacer"></span>
     <nav class="links" aria-label="Sections">
       <a href="#performance">Performance</a>
       <a href="#features">Features</a>
       <a href="#install">Install</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <span class="spacer"></span>
     <a class="ghost" href="https://github.com/martinx/LiveSubtitles">GitHub</a>
     <a class="btn small" href="https://github.com/martinx/LiveSubtitles/releases/latest">Download</a>
   </div>
@@ -138,10 +138,10 @@
       entirely on this machine, on the Neural Engine. No account, no subscription,
       no audio ever uploaded.</p>
     <div class="cta">
-      <a class="btn" href="https://github.com/martinx/LiveSubtitles/releases/latest">Download for macOS</a>
+      <a class="btn" href="https://github.com/martinx/LiveSubtitles/releases/latest/download/LiveSubtitles.dmg">Download for macOS</a>
       <a class="btn secondary" href="https://github.com/martinx/LiveSubtitles">View source</a>
     </div>
-    <p class="meta">Free · MIT licensed · macOS 14+ · Apple Silicon · ~9 MB download</p>
+    <p class="meta">Free · MIT licensed · macOS 14+ · Apple Silicon · 9.5 MB</p>
     <div class="shot"><img src="hero.png" width="1920" height="1080"
       alt="The Live Subtitles overlay showing a sentence over a video"></div>
   </div>
@@ -192,8 +192,9 @@
       <h2>Install</h2>
       <p class="sub">Download the zip, move the app to Applications, and grant one permission.</p>
       <ol class="steps">
-        <li><strong>Download and unzip</strong>
-          Grab the latest release and drag <code>Live Subtitles.app</code> into your Applications folder.</li>
+        <li><strong>Download and drag it across</strong>
+          Open the disk image and drop <code>Live Subtitles</code> onto the Applications
+          shortcut. (A <code>.zip</code> is on the release page too, if you prefer.)</li>
         <li><strong>Allow screen recording</strong>
           macOS asks on first launch, because that is how system audio is read. Grant it in
           System&nbsp;Settings → Privacy&nbsp;&amp;&nbsp;Security → Screen&nbsp;Recording.</li>

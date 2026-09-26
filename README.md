@@ -15,11 +15,13 @@ leaves the machine.
 
 ## Install
 
-Grab the latest release and drag the app to Applications:
+Grab the latest release — a disk image you drag to Applications:
 
 **<https://github.com/martinx/LiveSubtitles/releases/latest>**
 
-1. Unzip and move **Live Subtitles.app** into `/Applications`.
+1. Open **LiveSubtitles.dmg** and drag **Live Subtitles** onto the Applications
+   shortcut. (The release also carries `LiveSubtitles.zip` — that is what the in-app
+   updater downloads.)
 2. Launch it. macOS asks for **Screen Recording** — that is how system audio is read.
    Grant it under *System Settings → Privacy & Security → Screen Recording*, then
    relaunch if you had to change it.
@@ -52,7 +54,8 @@ make install        # release build + copy to /Applications
 | `make check-update` | report whether the remote has new commits |
 | `make icon` | regenerate `Resources/AppIcon.icns` |
 | `make dist` | zip the app in `build/` without rebuilding it |
-| `make package` | `build` then `dist` |
+| `make dmg` | drag-to-Applications disk image, also without rebuilding |
+| `make package` | `build`, then both artefacts |
 | `make clean` | remove `build/` and `.build/` |
 
 Then launch it like any other app — Spotlight (`Cmd-Space` → `Live Subtitles`),
