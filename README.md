@@ -399,38 +399,44 @@ warning completely.
 
 ### Signing and notarising
 
-You need a **paid** Apple Developer Program membership (a Developer ID certificate cannot
-be issued to a free team), an **App Store Connect API key** with the *Developer* role or
-higher, and one command.
+You need a **paid** Apple Developer Program membership (a Developer ID certificate
+cannot be issued to a free team) and an App Store Connect API key.
 
-1. **Create the certificate.** Xcode → Settings → Accounts → your team →
-   *Manage Certificates* → `+` → **Developer ID Application**.
-2. **Export it with its private key.** Keychain Access → login → *My Certificates* →
-   right-click *Developer ID Application: …* → Export… → `.p12`, and set a password.
-3. **Create an API key.** appstoreconnect.apple.com → *Users and Access* → *Integrations*
-   → *App Store Connect API* → `+`, role *Developer*. Download the `.p8` (Apple only lets
-   you download it once) and note the **Key ID**; the **Issuer ID** is shown above the
-   key list.
-4. **Install the secrets:**
+#### The short path
+
+1. **Create an API key.** appstoreconnect.apple.com → *Users and Access* →
+   *Integrations* → *App Store Connect API* → `+`, role **Admin** or *App Manager*.
+   Download the `.p8` (Apple only lets you download it once) and note the **Key ID**;
+   the **Issuer ID** is shown above the key list.
+2. **Run one command:**
 
    ```bash
-   scripts/make-signing-secrets.sh DeveloperID.p12 AuthKey_XXXXXXXXXX.p8
+   scripts/setup-signing.sh ~/Downloads/AuthKey_XXXXXXXXXX.p8
    ```
 
-   It refuses anything that is not really a Developer ID certificate, reads the Team ID
-   out of it, and uploads `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
-   `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID` and `APPLE_TEAM_ID`.
-5. **Verify without publishing:**
+   It generates the private key and CSR locally, asks Apple to issue a **Developer ID
+   Application** certificate for it, builds the `.p12`, imports it into your login
+   keychain so local builds sign too, and uploads every secret the workflow needs.
+3. **Prove it works without publishing:**
 
    ```bash
    gh workflow run release.yml -f tag=v0.1.2 -f dry_run=true
    ```
 
-   This runs the whole path — import the certificate, sign with hardened runtime and a
-   secure timestamp, notarise, staple — and then uploads the artefacts as workflow
-   artefacts instead of creating a release. If the *Import the Developer ID certificate*,
-   *Notarise* and *Check Gatekeeper's verdict* steps are green, the next tag will produce
-   a download that just opens.
+   The whole path runs — import the certificate, sign with hardened runtime and a secure
+   timestamp, notarise, staple — and the artefacts are uploaded as workflow artefacts
+   instead of a release. If *Import the Developer ID certificate*, *Notarise* and
+   *Check Gatekeeper's verdict* are green, the next tag produces a download that just
+   opens.
+
+#### If you already have the certificate
+
+Export it with its private key — Keychain Access → login → *My Certificates* →
+right-click *Developer ID Application: …* → Export… → `.p12`, set a password — then:
+
+```bash
+scripts/make-signing-secrets.sh DeveloperID.p12 AuthKey_XXXXXXXXXX.p8
+```
 
 An `APPLE_ID` + `APPLE_APP_PASSWORD` + `APPLE_TEAM_ID` triple also works if you would
 rather use an app-specific password than an API key. Every signing step is conditional,
