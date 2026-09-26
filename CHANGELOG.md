@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Drag to reposition is now on by default.** The overlay window also hugs the caption
+  bar instead of reserving a tall empty rectangle above it, so an overlay you can drag no
+  longer leaves an invisible dead zone that swallows clicks meant for the video.
+
 ### Planned
 
 - Offline transcription of local files: pre-transcribe an episode with a batch model

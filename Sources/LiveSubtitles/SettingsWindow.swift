@@ -67,8 +67,8 @@ struct SettingsView: View {
                 Label("Behaviour", systemImage: "text.bubble")
             } footer: {
                 Text(settings.draggable
-                     ? "On: the overlay captures clicks in its area — turn off once positioned."
-                     : "Click-through. Turn on dragging to move the overlay; the spot is remembered.")
+                     ? "Drag the caption bar to move the overlay; the position is remembered per display. Turn off to make it fully click-through."
+                     : "Click-through: no part of the overlay takes a click, and it stays where it is.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

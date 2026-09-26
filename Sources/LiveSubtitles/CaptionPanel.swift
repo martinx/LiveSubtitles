@@ -26,6 +26,9 @@ final class CaptionPanel: NSPanel {
 
     private let settings: Settings
     private var dragMonitor: Any?
+    /// Height the SwiftUI bar reported; the panel matches it so the clickable area is
+    /// exactly the visible bar.
+    private var barHeight: CGFloat?
     /// Where inside the panel the drag started, so it does not jump under the cursor.
     private var grabOffset: NSPoint?
 
@@ -48,7 +51,13 @@ final class CaptionPanel: NSPanel {
         // Dragging is implemented below, so let AppKit stay out of it.
         isMovableByWindowBackground = false
 
-        contentView = NSHostingView(rootView: CaptionView(model: model, settings: settings))
+        contentView = NSHostingView(rootView: CaptionView(
+            model: model,
+            settings: settings,
+            onBarHeightChange: { [weak self] height in
+                self?.barHeightChanged(height)
+            }
+        ))
 
         applyInteraction(settings: settings)
         applyLayout(settings: settings)
@@ -62,6 +71,15 @@ final class CaptionPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// The bar grew or shrank (different line count, font size, status text). Re-lay
+    /// out so the window keeps hugging it.
+    private func barHeightChanged(_ height: CGFloat) {
+        guard height > 0 else { return }
+        guard abs((barHeight ?? 0) - height) > 0.5 else { return }
+        barHeight = height
+        applyLayout(settings: settings)
+    }
 
     // MARK: - Interaction
 
@@ -168,7 +186,9 @@ final class CaptionPanel: NSPanel {
         guard let screen else { return }
         let visible = screen.visibleFrame
         let width = min(visible.width - 60, visible.width * settings.widthFraction)
-        let height = CGFloat(settings.lineLimit) * (settings.fontSize * 1.5) + 30
+        // Before the first measurement, reserve room for every allowed line; after it,
+        // hug the bar so there is no dead zone above the captions.
+        let height = barHeight ?? (CGFloat(settings.lineLimit) * (settings.fontSize * 1.5) + 30)
 
         let requested: NSPoint
         if settings.hasCustomPosition {

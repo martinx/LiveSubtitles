@@ -115,7 +115,7 @@ final class Settings: ObservableObject {
             Key.lineLimit: 2,
             Key.newLineAfterSilence: 3.0,
             Key.alwaysVisible: false,
-            Key.draggable: false,
+            Key.draggable: true,
             Key.showInDock: false,
             Key.startAtLaunch: true,
             Key.startShortcut: KeyShortcut.defaultStart.storage,

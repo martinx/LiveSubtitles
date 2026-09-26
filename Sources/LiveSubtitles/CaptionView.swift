@@ -22,6 +22,10 @@ import SwiftUI
 struct CaptionView: View {
     @ObservedObject var model: CaptionModel
     @ObservedObject var settings: Settings
+    /// Reports the height the caption bar actually occupies. The panel shrinks to it,
+    /// so the window only swallows clicks where the bar is drawn rather than over a
+    /// tall empty rectangle above it.
+    var onBarHeightChange: (CGFloat) -> Void = { _ in }
 
     private var hasContent: Bool {
         model.hasText || !model.status.isEmpty
@@ -51,6 +55,15 @@ struct CaptionView: View {
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(hasContent ? Color.black.opacity(settings.backgroundOpacity) : Color.clear)
+            )
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { onBarHeightChange(proxy.size.height) }
+                        .onChange(of: proxy.size.height) { _, height in
+                            onBarHeightChange(height)
+                        }
+                }
             )
             // Anchored to the bottom of the panel's reserved area.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

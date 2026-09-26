@@ -182,7 +182,7 @@ the test sentence. Worth trying only if a particular show trips up Parakeet.
 | **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. |
 | **Keep captions on screen** | Stop the overlay fading out during quiet stretches. |
 | **Show Dock icon** | Off by default — the app is a menu-bar accessory and never takes activation from the video. Turn on for a Dock icon, a Cmd-Tab entry, a full app menu, and a **LIVE** badge on the Dock tile while capturing. |
-| **Drag to reposition** | The overlay is click-through by default. Turn on to grab it and put it where you want; the spot is remembered. **While it is on, the overlay captures the mouse**, so clicks in its area no longer reach the video — turn it off once positioned. |
+| **Drag to reposition** | On by default: grab the caption bar and put it where you want, and the spot is remembered. While it is on, the overlay takes clicks **on the bar itself**; turn it off to make the overlay fully click-through. |
 | Font size / Width / Background / Distance from bottom | Apply immediately |
 | Max lines | 1–5. 1 = current sentence only · 2 = previous line above it · 3+ gives the current sentence two lines and keeps more history. |
 
