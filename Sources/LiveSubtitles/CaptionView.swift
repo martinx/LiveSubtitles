@@ -69,8 +69,11 @@ struct CaptionView: View {
                         }
                 }
             )
-            // Anchored to the bottom of the panel's reserved area.
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            // Deliberately no `maxHeight: .infinity`: a view that asks for unbounded
+            // height lets AppKit size the window to fit, which showed up as an invisible
+            // full-height panel swallowing clicks. The window hugs the bar instead, so
+            // bottom alignment is all that is left to say.
+            .frame(maxWidth: .infinity, alignment: .bottom)
             .opacity(model.showsCaption ? 1 : 0)
             .animation(.easeOut(duration: 0.28), value: model.showsCaption)
     }

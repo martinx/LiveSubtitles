@@ -148,6 +148,30 @@ jobs:
             build/LiveSubtitles.zip
             build/LiveSubtitles.dmg
 
+      # CHANGELOG.md is the source of truth for what changed. Composing the description
+      # from it, rather than letting GitHub just list commits, is what makes a release
+      # readable. The step fails outright when the tag has no section, so notes can never
+      # silently degenerate into a bare compare link.
+      - name: Compose the release notes
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          scripts/changelog-for.sh "$TAG" > build/release-notes.md
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            {
+              echo
+              echo '---'
+              echo
+              printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
+                "$GITHUB_REPOSITORY" "$PREV" "$TAG"
+            } >> build/release-notes.md
+          fi
+          echo "----- release notes -----"
+          cat build/release-notes.md
+
       - name: Publish the release
         if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
@@ -159,4 +183,4 @@ jobs:
             build/LiveSubtitles.zip \
             build/LiveSubtitles.dmg \
             --title "$TAG" \
-            --generate-notes
+            --notes-file build/release-notes.md

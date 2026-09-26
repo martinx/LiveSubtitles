@@ -85,6 +85,9 @@ final class CaptionPanel: NSPanel {
         let ceiling = CGFloat(settings.lineLimit) * lineHeight + 60
         let clamped = min(height, ceiling)
 
+        if Self.debugLogging {
+            print("[panel] measured=\(height) ceiling=\(ceiling) clamped=\(clamped) lineLimit=\(settings.lineLimit) fontSize=\(settings.fontSize)")
+        }
         guard abs((barHeight ?? 0) - clamped) > 0.5 else { return }
         barHeight = clamped
         applyLayout(settings: settings)
