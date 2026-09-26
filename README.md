@@ -173,8 +173,12 @@ Design choices that keep it cheap:
   from one place.
 - **The capture format is already the model's format.** ScreenCaptureKit is asked for
   16 kHz mono and delivers 16 kHz mono Float32, so nothing is resampled on the hot path.
-- **O(1) cue segmentation.** Boundaries are "no new words for 700 ms" or "22 words",
-  and line breaks come from audio energy — no per-show VAD to tune.
+- **O(1) cue segmentation.** A cue ends on a finished sentence when the model has
+  punctuated one, otherwise after 700 ms without new words or 22 words. Line breaks
+  come from audio energy — no per-show VAD to tune.
+- **Cue text is tidied on the way out**: stranded leading marks are dropped, runs of
+  punctuation collapse to the strongest mark (`..` → `.`, `,.` → `.`), a full stop is
+  only appended after an actual word, and cues with no words at all are discarded.
 - **Bounded rendering.** Only a trailing window of transcript is drawn, partials are
   only pushed when the text actually changed, and cues with no actual words (a stray
   `?` from noise) are dropped.
@@ -249,8 +253,9 @@ headers were pruned, so it would not even compile without patching the dependenc
 - **English only.**
 - **No punctuation from the EOU models.** The default 0.6B model punctuates and
   capitalises; switch to EOU and you get run-on lowercase with a full stop appended.
-- **Cue splitting is silence-based, not punctuation-based**, so a line can occasionally
-  break in an odd place (e.g. `"…until the. Police arrive."`).
+- **A committed cue is frozen.** Streaming models keep revising the sentence they are
+  on, but once a cue has been cut and added to the transcript, later revisions are not
+  written back into it.
 - **No automatic recovery for the capture stream.** If ScreenCaptureKit stops (display
   change, permission change, monitor unplugged) audio goes dead until you pick
   **Restart Engine**.
@@ -263,7 +268,5 @@ headers were pruned, so it would not even compile without patching the dependenc
   timed `.srt` — zero latency and higher accuracy than any streaming pass, because the
   whole file is available up front. Streaming stays for anything that cannot be
   pre-processed.
-- **Punctuation-aware cue splitting** — prefer to break at a sentence end, and fall
-  back to the silence rule when the model gives no punctuation.
 - **Auto-reconnect the capture stream** so a display change does not need a manual
   restart.

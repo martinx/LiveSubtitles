@@ -213,9 +213,12 @@ final class StreamingTranscriber {
 
                     guard transcript.count > consumed else { continue }
 
-                    let pending = String(transcript.dropFirst(consumed))
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    let rawTail = String(transcript.dropFirst(consumed))
+                    let pending = rawTail.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !pending.isEmpty else { continue }
+                    // Offset of `pending` inside `transcript`, so a cue can stop short
+                    // of the end of the tail when it ends on a sentence boundary.
+                    let tailOffset = consumed + (rawTail.count - rawTail.drop(while: { $0.isWhitespace }).count)
 
                     if cueOpenMs == 0 { cueOpenMs = nowMs }
 
@@ -227,17 +230,29 @@ final class StreamingTranscriber {
                         // Cue bounds come from the audio clock, so they line up with
                         // playback for every model family.
                         let endMs = max(cueOpenMs + 300, nowMs - msSinceNewWords)
+
+                        // Cutting purely at "wherever the model has got to" leaves commas
+                        // and stray marks at the seam. When the tail already contains a
+                        // finished sentence, end the cue there instead.
+                        var cueText = pending
+                        var advanceTo = transcript.count
+                        if let cut = Self.sentenceCut(in: pending) {
+                            cueText = String(Array(pending).prefix(cut))
+                                .trimmingCharacters(in: .whitespaces)
+                            advanceTo = tailOffset + cut
+                        }
+
                         // The models occasionally emit a bare "?" or "." for noise;
                         // a cue with no actual words is not worth showing or exporting.
-                        if pending.contains(where: { $0.isLetter || $0.isNumber }) {
+                        if cueText.contains(where: { $0.isLetter || $0.isNumber }) {
                             continuation.yield(CaptionUpdate(kind: .utterance,
-                                                             text: pending,
+                                                             text: cueText,
                                                              startMs: cueOpenMs,
                                                              endMs: endMs))
                         } else if Self.debugLogging {
-                            print("[cue] dropped wordless \(pending)")
+                            print("[cue] dropped wordless \(cueText)")
                         }
-                        consumed = transcript.count
+                        consumed = advanceTo
                         cueOpenMs = 0
                         msSinceNewWords = 0
                         lastLive = ""
@@ -272,6 +287,40 @@ final class StreamingTranscriber {
         pump?.cancel()
         pump = nil
         await manager.cleanup()
+    }
+
+    /// Index just past the last finished sentence in `text`, or nil when there is none.
+    ///
+    /// Guards against the two things that look like a sentence end but are not:
+    /// an abbreviation ("major U.S. cities") and a sentence that is too short to stand
+    /// alone as a cue.
+    private static func sentenceCut(in text: String) -> Int? {
+        let terminators: Set<Character> = [".", "!", "?"]
+        let abbreviations: Set<String> = ["mr", "mrs", "ms", "dr", "prof", "st", "vs",
+                                          "etc", "jr", "sr", "gov", "sen", "rep", "no", "inc"]
+        let characters = Array(text)
+        var candidate: Int?
+
+        for index in characters.indices where terminators.contains(characters[index]) {
+            let next = index + 1
+            guard next >= characters.count || characters[next] == " " else { continue }
+
+            // A real sentence starts with a capital; "U.S. cities" does not.
+            if next + 1 < characters.count, !characters[next + 1].isUppercase { continue }
+
+            // Skip initials and common abbreviations.
+            let before = String(characters[..<index])
+            let word = before.split(separator: " ").last.map { $0.lowercased() } ?? ""
+            if word.count <= 1 || abbreviations.contains(word.replacingOccurrences(of: ".", with: "")) {
+                continue
+            }
+
+            // Require enough words that the cue stands on its own.
+            if before.split(separator: " ").count >= 2 { candidate = next }
+        }
+
+        guard let candidate, candidate < characters.count else { return nil }
+        return candidate
     }
 
     private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {

@@ -142,7 +142,8 @@ final class CaptionController {
                         self.captions.markPause()
 
                     case .utterance:
-                        let line = Self.readable(update.text)
+                        let line = Self.finalize(update.text)
+                        guard !line.isEmpty else { break }
                         self.transcript.append(TranscriptCue(startMs: update.startMs,
                                                              endMs: update.endMs,
                                                              text: line))
@@ -211,13 +212,56 @@ final class CaptionController {
         pasteboard.setString(transcript.plainText, forType: .string)
     }
 
-    /// The streaming model emits lowercase text without punctuation; a light touch
-    /// makes exported subtitles readable.
-    private static func readable(_ text: String) -> String {
-        var line = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty else { return line }
-        line = line.prefix(1).uppercased() + line.dropFirst()
-        if let last = line.last, !".!?…".contains(last) {
+    /// Tidy a finished cue.
+    ///
+    /// A streaming model punctuates *volatile* text: it can insert a mark at exactly the
+    /// point a cue was cut, which strands that mark at the start of the next cue, and it
+    /// can leave a comma where the cut happened. The old "append a full stop unless it
+    /// already ends in .!?" rule then turned that comma into ",.".
+    static func finalize(_ text: String) -> String {
+        let terminators: Set<Character> = [".", "!", "?", "…"]
+        let punctuation: Set<Character> = [".", ",", "!", "?", ";", ":", "…", "·"]
+
+        // 1. Drop marks stranded at the very start: they belong to the previous cue.
+        var characters = Array(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        while let first = characters.first, punctuation.contains(first) {
+            characters.removeFirst()
+            while characters.first == " " { characters.removeFirst() }
+        }
+        guard !characters.isEmpty else { return "" }
+
+        // 2. Collapse a run of marks into the strongest one: ".." -> ".", ",." -> ".",
+        //    ",," -> ",", while "?!" survives.
+        var tidied: [Character] = []
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            guard punctuation.contains(character) else {
+                tidied.append(character)
+                index += 1
+                continue
+            }
+            var run: [Character] = []
+            while index < characters.count, punctuation.contains(characters[index]) {
+                run.append(characters[index])
+                index += 1
+            }
+            if run.contains("…") {
+                tidied.append("…")
+                continue
+            }
+            let marks = run.filter { terminators.contains($0) }
+            var seen = Set<Character>()
+            tidied.append(contentsOf: marks.isEmpty ? [run[0]] : marks.filter { seen.insert($0).inserted })
+        }
+
+        var line = String(tidied).trimmingCharacters(in: .whitespaces)
+        guard let firstLetter = line.first else { return "" }
+        line = firstLetter.uppercased() + line.dropFirst()
+
+        // 3. Add a full stop only when the line ends in an actual word. Appending one
+        //    after a comma is what produced ",.".
+        if let last = line.last, last.isLetter || last.isNumber {
             line += "."
         }
         return line
