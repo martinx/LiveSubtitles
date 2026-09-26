@@ -14,6 +14,21 @@ All notable changes to this project are documented here. The format follows
   committed line behind the live text.
 - Automatic recovery when the capture stream stops (display change, permission change).
 
+## [0.1.6] - 2026-09-26
+
+### Fixed
+
+- The overlay window could intermittently size itself to almost the whole screen, leaving
+  an invisible panel across the display that swallowed clicks. The cause was the SwiftUI
+  content asking for unbounded height (`.frame(maxHeight: .infinity)`), which lets AppKit
+  fit the window to the screen. Measured over eight consecutive launches with a long
+  passage playing, the overlay is now a stable 193 pt where it previously reached 1065 pt.
+
+### Changed
+
+- Releases are described from `CHANGELOG.md` instead of GitHub's generated commit list, and
+  the workflow refuses to publish a tag that has no changelog section.
+
 ## [0.1.5] - 2026-09-26
 
 ### Fixed
