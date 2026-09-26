@@ -358,9 +358,10 @@ final class SettingsWindow {
                                 onCopy: onCopy,
                                 onClear: onClear)
 
-        if let window {
-            window.contentViewController = NSHostingController(rootView: view)
-        } else {
+        // Created once and never replaced: assigning a content view controller makes AppKit
+        // resize the window to the view's fitting size, and discards the SwiftUI view with
+        // it. `Settings` is observed, so the pane keeps itself current.
+        if window == nil {
             let created = NSWindow(contentViewController: NSHostingController(rootView: view))
             created.title = "Live Subtitles Settings"
             created.styleMask = [.titled, .closable]

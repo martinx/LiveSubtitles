@@ -1355,13 +1355,16 @@ private struct SessionRow: View {
 final class LibraryWindow {
     private var window: NSWindow?
 
+    /// Shows the window, creating it the first time.
+    ///
+    /// It deliberately does *not* replace the content view controller on later calls.
+    /// Assigning a new one makes AppKit resize the window to the new view's fitting size,
+    /// and it throws away the SwiftUI view — including the `translationTask` wiring, which is
+    /// why pressing a menu command that called this left the toolbar's Translate dead. The
+    /// view observes the model, so it keeps itself up to date; nothing needs replacing.
     func show(model: LibraryModel) {
-        let view = LibraryView(model: model)
-
-        if let window {
-            window.contentViewController = NSHostingController(rootView: view)
-        } else {
-            let created = NSWindow(contentViewController: NSHostingController(rootView: view))
+        if window == nil {
+            let created = NSWindow(contentViewController: NSHostingController(rootView: LibraryView(model: model)))
             created.title = "Live Subtitles Library"
             created.styleMask = [.titled, .closable, .resizable, .miniaturizable]
             created.isReleasedWhenClosed = false
