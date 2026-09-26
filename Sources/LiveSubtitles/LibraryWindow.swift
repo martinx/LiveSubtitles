@@ -58,6 +58,9 @@ struct LibraryView: View {
                 CommandPalette(model: model)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .liveSubtitlesHistoryChanged)) { _ in
+            Task { await model.refreshLive() }
+        }
         .onChange(of: model.newFolderRequestID) { _, _ in
             folderPrompt = FolderPrompt(mode: .new(nil))
         }
@@ -254,7 +257,7 @@ struct LibraryView: View {
     private var sessionList: some View {
         List(selection: $model.sessionSelection) {
             ForEach(model.listedSessions) { session in
-                SessionRow(session: session)
+                SessionRow(session: session, isLive: session.id == model.liveSessionID)
                     .tag(session.id)
                     .draggable(DragToken.session(session.id))
                     .contextMenu { sessionMenu(session) }
@@ -473,6 +476,7 @@ struct LibraryView: View {
                 placeholder("Nothing here yet",
                             "Start listening and every finished line lands in this session.")
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Metrics.paragraphSpacing) {
                         ForEach(Array(model.paragraphs.enumerated()), id: \.offset) { index, paragraph in
@@ -482,6 +486,7 @@ struct LibraryView: View {
                                     TokenizedLine(cue: cue,
                                                   model: model,
                                                   notes: model.notesByCue[cue.id] ?? [])
+                                        .id(cue.id)
                                 }
                                 // Gated on the toggle, not just on a translation existing:
                                 // otherwise turning translation off, or a word lookup that
@@ -496,6 +501,16 @@ struct LibraryView: View {
                     .padding(.horizontal, Metrics.panePadding)
                     .padding(.vertical, Metrics.panePadding)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // While a session is being recorded, the newest line is the one worth
+                // looking at; without this the reader sits wherever it was left.
+                .onChange(of: model.readerCues.count) { _, _ in
+                    guard model.selectedSessionID == model.liveSessionID,
+                          let last = model.readerCues.last else { return }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(last.id, anchor: .bottom)
+                    }
+                }
                 }
             }
         }
@@ -1386,10 +1401,19 @@ private struct FlowLayout: Layout {
 
 private struct SessionRow: View {
     let session: Session
+    var isLive = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(session.title).lineLimit(1)
+            HStack(spacing: 5) {
+                if isLive {
+                    Image(systemName: "record.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .help("Recording now")
+                }
+                Text(session.title).lineLimit(1)
+            }
             Text("\(session.cueCount) lines · \(session.startedAt.formatted(date: .abbreviated, time: .shortened))")
                 .font(.caption)
                 .foregroundStyle(.secondary)

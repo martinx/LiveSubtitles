@@ -43,6 +43,15 @@ enum ListeningState {
     }
 }
 
+extension Notification.Name {
+    /// Posted whenever the archive changes — a session starts or ends, or a line is written.
+    ///
+    /// The library window cannot poll the database and has no other way to know that the
+    /// recording it is watching has produced a line, so the writer says so. Cues are written
+    /// as they are finished, so this fires in real time during a session.
+    static let liveSubtitlesHistoryChanged = Notification.Name("LiveSubtitlesHistoryChanged")
+}
+
 @MainActor
 final class CaptionController {
     let settings: Settings
@@ -287,6 +296,7 @@ final class CaptionController {
             if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
                 print("[history] session started — \(session.title)")
             }
+            NotificationCenter.default.post(name: .liveSubtitlesHistoryChanged, object: nil)
         } catch {
             history = nil
             liveSession = nil
@@ -297,6 +307,7 @@ final class CaptionController {
     private func endHistorySession() async {
         guard let history, let session = liveSession else { return }
         try? await history.endSession(session.id)
+        NotificationCenter.default.post(name: .liveSubtitlesHistoryChanged, object: nil)
         if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
             print("[history] session ended")
         }
@@ -306,11 +317,15 @@ final class CaptionController {
     /// Mirrors one finished line into the archive.
     private func record(_ cue: TranscriptCue, text: String) {
         guard let history, let session = liveSession else { return }
+        // The id, never the title: renaming the session in the library must not detach the
+        // recording from it, and a UUID cannot be renamed.
+        let sessionID = session.id
         Task {
-            try? await history.appendCue(sessionID: session.id,
+            try? await history.appendCue(sessionID: sessionID,
                                          startMs: cue.startMs,
                                          endMs: cue.endMs,
                                          text: text)
+            NotificationCenter.default.post(name: .liveSubtitlesHistoryChanged, object: nil)
         }
     }
 

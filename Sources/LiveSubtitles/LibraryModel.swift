@@ -555,6 +555,27 @@ final class LibraryModel: ObservableObject {
         else { expandedFolders.insert(id) }
     }
 
+    /// Re-reads the archive after the recorder writes to it.
+    ///
+    /// Deliberately does not touch the selection or the folder: the window stays where the
+    /// user put it and the new lines simply appear. Reloading a session's cues is a single
+    /// indexed query, which is nothing next to the once-per-sentence rate it arrives at.
+    func refreshLive() async {
+        guard let store else { return }
+        sessions = (try? await store.sessions()) ?? sessions
+        folderTree = (try? await store.folderTree()) ?? folderTree
+        listedSessions = (try? await sessionsForTarget()) ?? listedSessions
+        if let id = selectedSessionID {
+            cues = (try? await store.cues(in: id)) ?? cues
+        }
+        totalCues = (try? await store.cueCount()) ?? totalCues
+    }
+
+    /// The session being recorded right now, if any — the library marks it as live.
+    var liveSessionID: String? {
+        sessions.first { $0.endedAt == nil }?.id
+    }
+
     /// Handles something dropped on a folder — or on All Sessions, which means the root.
     /// The token says what was dragged, since a folder and a session are both strings.
     @discardableResult
