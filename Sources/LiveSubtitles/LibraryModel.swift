@@ -72,7 +72,17 @@ enum OnlineDictionaryState: Equatable {
     case failed(String)
 }
 
-enum TranslationScope {
+/// A translation request: which run, and what it covers.
+struct TranslationRequest: Equatable {
+    var id = 0
+    var scope: TranslationScope = .paragraphs
+
+    func next(_ scope: TranslationScope) -> TranslationRequest {
+        TranslationRequest(id: id + 1, scope: scope)
+    }
+}
+
+enum TranslationScope: Equatable {
     case paragraphs
     case words
 }
@@ -163,11 +173,14 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var glosses: [String: String] = [:]
     /// Lemmas waiting to be glossed: translated even when paragraph translation is off.
     @Published private(set) var wantedWords: [String] = []
-    /// Bumped to ask the view's `translationTask` to run; the session only exists inside it.
-    @Published private(set) var translationRequestID = 0
-    /// What that run should cover. A word lookup must never drag the paragraphs with it —
-    /// looking a word up is not a request to translate the episode again.
-    @Published private(set) var translationScope: TranslationScope = .paragraphs
+    /// What the next translation run should cover, and which run it is.
+    ///
+    /// One value rather than two `@Published` properties: as separate values they could
+    /// disagree, and when the scope said "paragraphs" while the request came from a word
+    /// lookup, double-clicking a word translated the whole episode.
+    @Published private(set) var translationRequest = TranslationRequest()
+    var translationRequestID: Int { translationRequest.id }
+    var translationScope: TranslationScope { translationRequest.scope }
 
     // Word inspection: drives the popover anchored on the word itself, so the transcript
     // stays the interface instead of sending every gesture down to a panel.
@@ -274,8 +287,7 @@ final class LibraryModel: ObservableObject {
         } else {
             paragraphTranslationOn = true
             translationPhase = .waiting
-            translationScope = .paragraphs
-            translationRequestID += 1
+            translationRequest = translationRequest.next(.paragraphs)
         }
     }
 
@@ -313,11 +325,9 @@ final class LibraryModel: ObservableObject {
 
     /// Asks for one word's Chinese without turning on whole-paragraph translation.
     func requestGloss(for lemma: String) {
-        guard glosses[lemma] == nil else { return }
         if !wantedWords.contains(lemma) { wantedWords.append(lemma) }
         if translationPhase == .off { translationPhase = .glossing }
-        translationScope = .words
-        translationRequestID += 1
+        translationRequest = translationRequest.next(.words)
     }
 
     /// Runs inside the SwiftUI `translationTask`, which is the only place a usable session
@@ -332,9 +342,6 @@ final class LibraryModel: ObservableObject {
             return
         }
         translationPhase = .working
-        if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
-            print("[tr] run: paragraphs=\(paragraphs.count) words=\(words.count) on=\(paragraphTranslationOn) scope=\(translationScope)")
-        }
         do {
             // Say plainly when the first run has to fetch the language pairs, because the
             // system's own sheet is what the user will see and it does not explain itself.
@@ -377,9 +384,6 @@ final class LibraryModel: ObservableObject {
                     break
                 }
             }
-            if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
-                print("[tr] done: requests=\(requests.count) responses=\(responses.count) translated=\(translated.count)")
-            }
             translations = translated
             glosses = freshGlosses
             wantedWords.removeAll { freshGlosses[$0] != nil }
@@ -388,9 +392,6 @@ final class LibraryModel: ObservableObject {
                 inspection?.translation = gloss
             }
         } catch {
-            if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
-                print("[tr] FAILED: \(error.localizedDescription)")
-            }
             translationPhase = .failed(error.localizedDescription)
         }
     }
@@ -670,8 +671,7 @@ final class LibraryModel: ObservableObject {
         clearInspection()
         translations = [:]
         if paragraphTranslationOn {
-            translationScope = .paragraphs
-            translationRequestID += 1
+            translationRequest = translationRequest.next(.paragraphs)
         }
         guard let id = selectedSessionID else { cues = []; notes = []; return }
         try? await load(id)

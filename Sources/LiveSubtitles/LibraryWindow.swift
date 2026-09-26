@@ -483,7 +483,11 @@ struct LibraryView: View {
                                                   model: model,
                                                   notes: model.notesByCue[cue.id] ?? [])
                                 }
-                                if let translation = model.translations[index] {
+                                // Gated on the toggle, not just on a translation existing:
+                                // otherwise turning translation off, or a word lookup that
+                                // left old translations behind, would still show them.
+                                if model.paragraphTranslationOn,
+                                   let translation = model.translations[index] {
                                     TranslationBlock(text: translation)
                                 }
                             }

@@ -452,21 +452,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openLibrary() {
         libraryModel.attach(controller?.historyStore())
         libraryWindow.show(model: libraryModel)
-        // TEMP-PROBE: press Translate three times, the way the user does.
-        if ProcessInfo.processInfo.environment["LIVESUBTITLES_TEST_LIVE"] != nil {
-            Task {
-                try? await Task.sleep(for: .seconds(3))
-                guard let rich = libraryModel.sessions.first(where: { $0.cueCount > 5 }) else {
-                    print("[probe] no session with lines"); return
-                }
-                await libraryModel.select(rich.id)
-                for round in 1...3 {
-                    try? await Task.sleep(for: .seconds(6))
-                    print("[probe] ===== press \(round) =====")
-                    libraryModel.toggleTranslation()
-                }
-            }
-        }
     }
 
     @objc private func showAbout() {
