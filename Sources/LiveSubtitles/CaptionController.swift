@@ -35,7 +35,9 @@ final class CaptionController {
         settings.objectWillChange
             .sink { [weak self] _ in
                 DispatchQueue.main.async {
-                    guard let self, let panel = self.panel else { return }
+                    guard let self else { return }
+                    self.applyActivationPolicy()
+                    guard let panel = self.panel else { return }
                     panel.applyLayout(settings: self.settings)
                     panel.applyInteraction(settings: self.settings)
                 }
@@ -43,7 +45,14 @@ final class CaptionController {
             .store(in: &cancellables)
     }
 
+    /// Menu-bar only by default; the Dock icon is opt-in so the app can never take
+    /// activation away from whatever is playing.
+    private func applyActivationPolicy() {
+        NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
+    }
+
     func start() {
+        applyActivationPolicy()
         showPanel()
         restart()
 

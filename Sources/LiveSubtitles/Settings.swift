@@ -23,6 +23,7 @@ final class Settings: ObservableObject {
         static let newLineAfterSilence = "newLineAfterSilence"
         static let alwaysVisible = "alwaysVisible"
         static let draggable = "draggable"
+        static let showInDock = "showInDock"
         static let hasCustomPosition = "hasCustomPosition"
         static let panelX = "panelX"
         static let panelY = "panelY"
@@ -51,6 +52,9 @@ final class Settings: ObservableObject {
     @Published var alwaysVisible: Bool { didSet { defaults.set(alwaysVisible, forKey: Key.alwaysVisible) } }
     /// Make the overlay draggable. Off means it is click-through and fixed in place.
     @Published var draggable: Bool { didSet { defaults.set(draggable, forKey: Key.draggable) } }
+    /// Show a Dock icon as well as the menu-bar item. Off by default: an accessory
+    /// app can never activate itself over the video.
+    @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: Key.showInDock) } }
 
     // MARK: - Overlay position
 
@@ -83,6 +87,7 @@ final class Settings: ObservableObject {
             Key.newLineAfterSilence: 3.0,
             Key.alwaysVisible: false,
             Key.draggable: false,
+            Key.showInDock: false,
             Key.hasCustomPosition: false,
             Key.panelX: 0.0,
             Key.panelY: 0.0,
@@ -105,6 +110,7 @@ final class Settings: ObservableObject {
         newLineAfterSilence = defaults.double(forKey: Key.newLineAfterSilence)
         alwaysVisible = defaults.bool(forKey: Key.alwaysVisible)
         draggable = defaults.bool(forKey: Key.draggable)
+        showInDock = defaults.bool(forKey: Key.showInDock)
         hasCustomPosition = defaults.bool(forKey: Key.hasCustomPosition)
         panelX = defaults.double(forKey: Key.panelX)
         panelY = defaults.double(forKey: Key.panelY)

@@ -62,6 +62,7 @@ struct SettingsView: View {
                 }
                 Toggle("Keep captions on screen", isOn: $settings.alwaysVisible)
                 Toggle("Drag to reposition", isOn: $settings.draggable)
+                Toggle("Show Dock icon", isOn: $settings.showInDock)
 
                 HStack {
                     Button("Reset overlay position", action: settings.resetPosition)

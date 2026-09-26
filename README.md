@@ -106,6 +106,7 @@ rather have the lowest possible latency.
 | End of sentence after | How much silence closes a subtitle line. Needs **Apply & Restart Engine**. |
 | **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. The last line stays readable during the pause; the break is applied when speech resumes. |
 | **Keep captions on screen** | Stop the overlay fading out during quiet stretches. |
+| **Show Dock icon** | Off by default: the app is a menu-bar accessory, so it never takes activation away from the video. Turn on for a Dock icon and Cmd-Tab entry. |
 | **Drag to reposition** | The overlay is click-through by default. Switch this on to grab it and put it where you want; the spot is remembered across launches. **While it is on the overlay captures the mouse**, so clicks in its area no longer reach the video — turn it back off once it is where you want it. **Reset overlay position** goes back to the *Distance from bottom* setting. |
 | Font size / Width / Background / Distance from bottom | Apply immediately |
 | Max lines | 1–5. 1 = current sentence only, 2 = previous line above it, 3+ gives the current sentence two lines and keeps more history. |
@@ -167,6 +168,17 @@ window (`WINDOW_SIZE_SAMPLES = 67200`) before every decode. That put a hard ~4�
 floor under subtitle latency that no model or parameter change could remove, and it
 needed a 1.5 GB model plus a CTranslate2 framework with pruned headers.
 
+## Icon
+
+The app icon is original artwork, drawn from scratch by `scripts/make-icon.py`
+(Pillow): a dark "screen" carrying a white caption card with two text lines and a
+speech tail, plus a coral dot for "live". No third-party icon assets are used.
+
+```bash
+python3 scripts/make-icon.py      # writes icon_1024.png and a size-legibility strip
+./build.sh                        # bundles Resources/AppIcon.icns
+```
+
 ## Architecture
 
 ```
@@ -218,3 +230,11 @@ LIVESUBTITLES_DUMP_SRT=/tmp/out.srt ./run.sh            # mirror the transcript 
   punctuated text) to correct the committed line. That buys accuracy without
   adding perceived latency, because it runs behind the live text.
 - English only.
+
+### Planned
+
+- **Offline transcription of local files.** Point the app at an episode, transcribe it
+  ahead of time with a batch model (Parakeet TDT v2 / Ultra) and export a perfectly
+  timed `.srt` — zero latency and higher accuracy than any streaming pass, because the
+  whole file is available up front. Streaming stays for anything that cannot be
+  pre-processed.
