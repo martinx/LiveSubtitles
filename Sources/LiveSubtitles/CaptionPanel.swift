@@ -188,7 +188,12 @@ final class CaptionPanel: NSPanel {
         let width = min(visible.width - 60, visible.width * settings.widthFraction)
         // Before the first measurement, reserve room for every allowed line; after it,
         // hug the bar so there is no dead zone above the captions.
-        let height = barHeight ?? (CGFloat(settings.lineLimit) * (settings.fontSize * 1.5) + 30)
+        //
+        // Both types are spelled out: mixing CGFloat and Double inside a `??` is
+        // inferred differently by different Swift versions, and Swift 6.1 (Xcode 16,
+        // what CI uses) resolves the whole expression to CGFloat? where 6.4 does not.
+        let reservedForAllLines: CGFloat = CGFloat(settings.lineLimit) * CGFloat(settings.fontSize * 1.5) + 30
+        let height: CGFloat = barHeight ?? reservedForAllLines
 
         let requested: NSPoint
         if settings.hasCustomPosition {
