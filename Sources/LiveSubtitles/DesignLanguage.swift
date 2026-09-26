@@ -27,14 +27,23 @@ enum Metrics {
 
 extension View {
     /// A panel that floats: real Liquid Glass on macOS 26+, a thin material before that.
+    ///
+    /// The `#if compiler` matters as much as the `#available`: `glassEffect` does not exist
+    /// in an older SDK at all, so a purely runtime check fails to build. Xcode 26 ships
+    /// Swift 6.2, which is the guard's proxy for "this SDK has the glass APIs".
     @ViewBuilder
     func glassPanel(cornerRadius: CGFloat = Metrics.cardRadius) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             self.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             self.background(.ultraThinMaterial,
                             in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
+        #else
+        self.background(.ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        #endif
     }
 
     /// Roomier sidebar rows without giving up the system's own sidebar behaviour.
@@ -52,6 +61,7 @@ struct GlassControlGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             GlassEffectContainer(spacing: 8) {
                 HStack(spacing: 8) { content }
@@ -60,11 +70,18 @@ struct GlassControlGroup<Content: View>: View {
                     .glassEffect(.regular, in: .capsule)
             }
         } else {
-            HStack(spacing: 8) { content }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(.ultraThinMaterial, in: Capsule())
+            fallback
         }
+        #else
+        fallback
+        #endif
+    }
+
+    private var fallback: some View {
+        HStack(spacing: 8) { content }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
     }
 }
 
@@ -90,10 +107,14 @@ struct ToolbarIconButton: View {
 private struct GlassButtonModifier: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             content.buttonStyle(.glass)
         } else {
             content.buttonStyle(.borderless)
         }
+        #else
+        content.buttonStyle(.borderless)
+        #endif
     }
 }
