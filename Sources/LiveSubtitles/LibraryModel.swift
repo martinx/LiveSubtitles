@@ -30,15 +30,20 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// All outline weight and roughly the same width, so the labels start on one line.
+    ///
+    /// `textformat.abc` was the odd one out: three letters and an underline in an icon sized
+    /// for a single glyph, so it was drawn squeezed and ran into the text. A closed book with
+    /// a character on it says "dictionary" in one shape.
     var symbol: String {
         switch self {
         case .sessions:    return "rectangle.stack"
         case .collections: return "folder"
-        case .notebook:    return "note.text"
+        case .notebook:    return "book.closed"
         case .favourites:  return "star"
-        case .vocabulary:  return "textformat.abc"
+        case .vocabulary:  return "character.book.closed"
         case .writing:     return "square.and.pencil"
-        case .statistics:  return "chart.bar"
+        case .statistics:  return "chart.bar.xaxis"
         }
     }
 }
