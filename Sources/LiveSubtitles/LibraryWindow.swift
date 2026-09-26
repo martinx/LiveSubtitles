@@ -176,6 +176,9 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
+        .onChange(of: model.target) { _, _ in
+            Task { await model.targetChanged() }
+        }
         // Last on the column, and with nothing after it: a toolbar modifier placed here
         // stopped the width from being applied at all, and the sidebar sat at its default
         // 192pt however large the window was.
@@ -619,10 +622,12 @@ struct LibraryView: View {
     private var statusBar: some View {
         if #available(macOS 15.0, *) {
             statusBarBody
-                // A new identity per request: a view that has just appeared always runs its
-                // translationTask, which is the only reliable way to start one again.
-                .id(model.translationRequestID)
                 .modifier(OneShotTranslation(model: model))
+                // Identity is applied last, and that order is the whole point: `.id` before
+                // `.modifier` re-identifies only the inner view, the modifier and its @State
+                // are reused, and onAppear never runs again — which is why the task never
+                // started. Outermost, the whole subtree is rebuilt.
+                .id(model.translationRequestID)
         } else {
             statusBarBody
         }

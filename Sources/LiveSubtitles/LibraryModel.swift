@@ -447,11 +447,21 @@ final class LibraryModel: ObservableObject {
         }
     }
 
-    func selectTarget(_ newTarget: LibraryTarget) async {
-        target = newTarget
+    /// The sidebar binds straight to `target`, so this is what reacts to it: the list column
+    /// is rebuilt for the new folder and the reader follows the first thing in it.
+    func targetChanged() async {
         sessionSelection = []
         selectedSessionID = nil
+        selectedCueID = nil
+        clearInspection()
         await refreshListed()
+        selectedSessionID = listedSessions.first(where: { $0.cueCount > 0 })?.id
+            ?? listedSessions.first?.id
+    }
+
+    func selectTarget(_ newTarget: LibraryTarget) async {
+        target = newTarget
+        await targetChanged()
     }
 
     func refreshListed() async {
@@ -578,6 +588,10 @@ final class LibraryModel: ObservableObject {
             return
         }
         selectedCueID = cue.id
+        // Reset the online tab: otherwise the second word looked up shows the first one's
+        // entry, because `loadOnlineEntry` returns early once the state is ready.
+        onlineEntry = nil
+        onlineState = .idle
         inspection = WordInspection(word: word, lemma: lemma, cueID: cue.id,
                                     entry: DictionaryLookup.parsedEntry(for: lemma)
                                         ?? DictionaryLookup.parsedEntry(for: word))
