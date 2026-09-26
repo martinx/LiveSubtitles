@@ -392,21 +392,54 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-Without any secrets that produces a working but **ad-hoc signed** build — users have to
-right-click → Open once. For a download-and-run experience, add these repository secrets
-so the workflow signs with a Developer ID and notarises the result:
+Without any secrets that produces a working but **ad-hoc signed** build: it runs, but on
+someone else's Mac Gatekeeper blocks the first launch until they right-click → Open.
+Signing with a **Developer ID Application** certificate and notarising removes that
+warning completely.
 
-| Secret | What it is |
-|---|---|
-| `APPLE_CERTIFICATE_BASE64` | your Developer ID Application certificate export (`.p12`), base64 encoded |
-| `APPLE_CERTIFICATE_PASSWORD` | the password you set on that export |
-| `APPLE_API_KEY_P8` | App Store Connect API key (`.p8`), base64 encoded |
-| `APPLE_API_KEY_ID` | that key's ID |
-| `APPLE_API_ISSUER_ID` | your App Store Connect issuer ID |
+### Signing and notarising
 
-`APPLE_ID` + `APPLE_APP_PASSWORD` + `APPLE_TEAM_ID` work too, if you would rather use an
-app-specific password than an API key. Every signing step is conditional, so the workflow
-stays green either way.
+You need a **paid** Apple Developer Program membership (a Developer ID certificate cannot
+be issued to a free team), an **App Store Connect API key** with the *Developer* role or
+higher, and one command.
+
+1. **Create the certificate.** Xcode → Settings → Accounts → your team →
+   *Manage Certificates* → `+` → **Developer ID Application**.
+2. **Export it with its private key.** Keychain Access → login → *My Certificates* →
+   right-click *Developer ID Application: …* → Export… → `.p12`, and set a password.
+3. **Create an API key.** appstoreconnect.apple.com → *Users and Access* → *Integrations*
+   → *App Store Connect API* → `+`, role *Developer*. Download the `.p8` (Apple only lets
+   you download it once) and note the **Key ID**; the **Issuer ID** is shown above the
+   key list.
+4. **Install the secrets:**
+
+   ```bash
+   scripts/make-signing-secrets.sh DeveloperID.p12 AuthKey_XXXXXXXXXX.p8
+   ```
+
+   It refuses anything that is not really a Developer ID certificate, reads the Team ID
+   out of it, and uploads `APPLE_CERTIFICATE_BASE64`, `APPLE_CERTIFICATE_PASSWORD`,
+   `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID` and `APPLE_TEAM_ID`.
+5. **Verify without publishing:**
+
+   ```bash
+   gh workflow run release.yml -f tag=v0.1.2 -f dry_run=true
+   ```
+
+   This runs the whole path — import the certificate, sign with hardened runtime and a
+   secure timestamp, notarise, staple — and then uploads the artefacts as workflow
+   artefacts instead of creating a release. If the *Import the Developer ID certificate*,
+   *Notarise* and *Check Gatekeeper's verdict* steps are green, the next tag will produce
+   a download that just opens.
+
+An `APPLE_ID` + `APPLE_APP_PASSWORD` + `APPLE_TEAM_ID` triple also works if you would
+rather use an app-specific password than an API key. Every signing step is conditional,
+so the workflow stays green with or without any of this.
+
+> **Whose name appears?** A Developer ID is issued to a *team*. Users see that team's name
+> in the Gatekeeper prompt — for example *"…was signed by Shanghai Dst Technology
+> Co.,ltd."*. For a personal project under your own name you would need a separate,
+> personally enrolled paid account.
 
 The landing page in [`docs/`](docs) is published by GitHub Pages at
 <https://subtitles.bitey.ai>.

@@ -14,6 +14,10 @@ on:
       tag:
         description: 'Tag to release, e.g. v0.1.0 (must already exist)'
         required: true
+      dry_run:
+        description: 'Build, sign and notarise, but do not publish a release'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -65,7 +69,8 @@ jobs:
             -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
-          security list-keychains -d user -s "$KEYCHAIN" "$(security list-keychains -d user | tr -d '"')"
+          # shellcheck disable=SC2046  # word splitting is intended: one path per keychain
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
 
           IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
             | awk -F'"' '/Developer ID Application/{print $2; exit}')"
@@ -134,7 +139,17 @@ jobs:
             echo "::warning::spctl rejected the bundle - it is signed but not notarised"
 
       # ---------------------------------------------------------------- publish ---
+      - name: Upload the artefacts (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiveSubtitles-${{ github.event.inputs.tag }}
+          path: |
+            build/LiveSubtitles.zip
+            build/LiveSubtitles.dmg
+
       - name: Publish the release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
