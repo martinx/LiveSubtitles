@@ -50,6 +50,20 @@ struct LibraryView: View {
             }
         })
         .frame(minWidth: 900, minHeight: 560)
+        // ⌘K. A hidden button is the dependable way to claim a shortcut in SwiftUI; the
+        // palette then owns the keyboard while it is open.
+        .background {
+            Button("") { model.showPalette() }
+                .keyboardShortcut("k", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        .overlay(alignment: .top) {
+            if model.isPaletteVisible {
+                CommandPalette(model: model)
+            }
+        }
         .sheet(item: $model.noteDraft) { draft in
             NoteEditor(model: model, draft: draft)
         }

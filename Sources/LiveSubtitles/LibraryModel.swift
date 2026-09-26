@@ -132,7 +132,14 @@ final class LibraryModel: ObservableObject {
     // The note being written.
     @Published var noteDraft: NoteDraft?
 
+    // ⌘K palette.
+    @Published var isPaletteVisible = false
+    @Published var paletteSelection = 0
+    @Published private(set) var paletteResults = PaletteResults()
+    @Published var paletteQuery = "" { didSet { schedulePaletteSearch() } }
+
     private var store: HistoryStore?
+    private var paletteTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
 
     var isSearching: Bool {
@@ -177,6 +184,34 @@ final class LibraryModel: ObservableObject {
         } else {
             translationPhase = .waiting
             translationRequestID += 1
+        }
+    }
+
+    // MARK: - Palette
+
+    func showPalette() {
+        isPaletteVisible = true
+        paletteSelection = 0
+        if paletteQuery.isEmpty { paletteResults = PaletteResults() }
+    }
+
+    func hidePalette() {
+        isPaletteVisible = false
+        paletteQuery = ""
+        paletteResults = PaletteResults()
+    }
+
+    private func schedulePaletteSearch() {
+        paletteTask?.cancel()
+        paletteSelection = 0
+        let query = paletteQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, let store else { paletteResults = PaletteResults(); return }
+        paletteTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self else { return }
+            let found = (try? await store.everything(matching: query)) ?? PaletteResults()
+            guard !Task.isCancelled else { return }
+            self.paletteResults = found
         }
     }
 
@@ -337,6 +372,15 @@ final class LibraryModel: ObservableObject {
         guard !trimmed.isEmpty else { noteDraft = nil; return }
         await addNote(cueID: draft.cueID, kind: draft.kind, text: trimmed)
         noteDraft = nil
+    }
+
+    /// Creates a folder for the selected session, named from its siblings when possible.
+    func createSuggestedFolder() async {
+        guard let store, let sessionID = selectedSessionID else { return }
+        let name = (try? await store.suggestedFolderName(for: sessionID)) ?? "New Folder"
+        guard let folder = try? await store.createFolder(name) else { return }
+        try? await store.move(sessionID, to: folder.id)
+        await refresh()
     }
 
     func cancelNoteDraft() {
