@@ -4,36 +4,63 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-27
+
+Everything below is about what happens *around* the captions: keeping them, reading them,
+looking words up in them, and understanding who said what.
 
 ### Added
 
-- **Paragraph translation** into Simplified Chinese, on demand from the Library toolbar.
-  Uses the system Translation framework, so it runs on-device and offline once the language
-  pairs are downloaded; the first run asks macOS to fetch them, and the toolbar says so.
-  Translated paragraphs appear as blocks under the transcript, not in a second column.
-- **Word lookup** in the Library inspector: tap a line, tap any word, and get the system
-  dictionary's entry — pronunciation, part of speech, senses — plus every other line that
-  word appears in, and a button to save it into the vocabulary.
-- **The Library window** in the macOS 26/27 design language: Liquid Glass where the system
-  provides it, materials below that, and a sectioned status menu to match.
-
-- **The Library window** (menu bar → Library…, ⇧⌘L): every session is now kept, with its
-  transcript, and can be browsed, searched across, renamed, exported and annotated.
+- **The Library window** (menu bar → Library…, ⌘L). Every session is kept with its transcript
+  and can be browsed, searched across, renamed, filed into folders, exported and annotated.
+  Three columns: a folder tree of any depth, the sessions inside it, and the transcript.
 - **Persistent history** in `~/Library/Application Support/Live Subtitles/history.sqlite` —
-  SQLite with FTS5, so search runs over every session ever recorded.
-- **Notes**: select a line and save a word, a phrase, a favourite or a note against it.
-- **`LiveSubtitlesKit`**, a local Swift package holding the storage layer, deliberately
-  free of AppKit so it can be tested without launching the app (7 tests, all passing, run
-  in CI).
+  SQLite with FTS5, so search runs over everything ever recorded.
+- **⌘K**, one field over sessions, lines, words, notes, folders and commands. The same field
+  finds a line and runs “Translate This Session”.
+- **Word lookup.** Double-click any word for the system dictionary's entry — pronunciation,
+  part of speech, senses — its meaning in Chinese, every other line it appears in, and a
+  second opinion from Wiktionary. All of it inside the card; nothing opens a browser.
+- **Paragraph translation** into Simplified Chinese, on demand and on-device. The first run
+  asks macOS for the language pairs and the toolbar says so.
+- **Notes** in Markdown, with the source line quoted in automatically and that line's words
+  one tap away.
+- **Audio retention.** Each session keeps the sound it was transcribed from — 16 kHz mono AAC,
+  about 12 MB for a 45-minute episode, against the 6–8 % of a core the recogniser already uses.
+- **Speaker separation**, run after each session and shown as a coloured, numbered chip on
+  every line, with a switch between the enhanced reading and the raw transcript.
+- **`LiveSubtitlesKit`**, a local package holding the storage layer, deliberately free of
+  AppKit so it can be tested without launching the app. 12 tests, run in CI.
+
+### Changed
+
+- The whole interface follows the macOS 26/27 design language: Liquid Glass where the system
+  provides it and materials below that, a sectioned status menu, a Library menu with keys,
+  and settings rebuilt as glass cards.
+- Caption typography: SF Pro semibold, tracking scaled to the size, leading at 1.18×, and a
+  wide soft shadow in place of the hard one, which read as an outline rather than as type.
+- Study icons redrawn as one shape each at one weight, so the labels start on one line.
+- The sidebar is a real folder tree: any depth, the disclosure triangle on the trailing edge
+  as the Finder has it, and a New Folder row that is always there. Folders and sessions drag.
+
+### Fixed
+
+- The library did not follow a recording. Cues were always written as they were finished, but
+  the window read the archive once, when it opened, and never again.
+- The sidebar width was never applied at all: a toolbar modifier sitting between the list and
+  its width setting stopped it, so the sidebar stayed at its 192 pt default however large the
+  window was — growing the window only widened the reading column.
+- Double-clicking a word re-translated the whole episode. The scope and the request id were
+  separate values, and a word lookup could leave the scope saying “paragraphs”.
 
 ### Planned
 
-- Offline transcription of local files: pre-transcribe an episode with a batch model
-  and export a perfectly timed `.srt`, with zero live latency.
-- Two-pass correction: re-decode each finished cue with a batch model and revise the
-  committed line behind the live text.
-- Automatic recovery when the capture stream stops (display change, permission change).
+- **Batch re-recognition**: re-transcribe a finished session from its retained audio, which
+  brings punctuation, sentence casing and better accuracy. The evidence, the API to use and
+  the traps already paid for are written up in
+  [`docs/design/analysis-pipeline.md`](docs/design/analysis-pipeline.md).
+- Offline transcription of local files, pre-transcribed with a batch model and exported as a
+  perfectly timed `.srt` with zero live latency.
 
 ## [0.1.6] - 2026-09-26
 
