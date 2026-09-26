@@ -31,7 +31,18 @@ if [ -f Resources/AppIcon.icns ]; then
   cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
 
-# Releases are stamped from the git tag by the release workflow.
+# A release passes VERSION explicitly. Otherwise derive it from the nearest tag, so a
+# locally built app reports something meaningful instead of the placeholder in
+# Info.plist - which would otherwise make the in-app update check offer a "newer"
+# version than the code actually running.
+if [ -z "${VERSION:-}" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+  if DESC="$(git describe --tags --long --dirty 2>/dev/null)"; then
+    VERSION="$(printf '%s' "$DESC" | sed 's/^v//; s/-dirty$//; s/-[0-9]*-g[0-9a-f]*$//')"
+    BUILD_NUMBER="$(printf '%s' "$DESC" | sed -n 's/.*-\([0-9]*\)-g[0-9a-f]*.*/\1/p')"
+    BUILD_NUMBER="${BUILD_NUMBER:-0}"
+  fi
+fi
+
 if [ -n "${VERSION:-}" ]; then
   SHORT="${VERSION#v}"
   plutil -replace CFBundleShortVersionString -string "$SHORT" "$APP/Contents/Info.plist"

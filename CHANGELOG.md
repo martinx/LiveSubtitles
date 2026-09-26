@@ -14,6 +14,22 @@ All notable changes to this project are documented here. The format follows
   committed line behind the live text.
 - Automatic recovery when the capture stream stops (display change, permission change).
 
+## [0.1.3] - 2026-09-26
+
+### Added
+
+- **A downloaded copy installs itself.** Run from Downloads or straight out of the disk
+  image, the app offers to move itself into Applications and restarts from there. This
+  fixes the permission prompt that came back on every launch: a quarantined,
+  non-notarised app is run by macOS from a fresh random directory each time, so it never
+  looks like the same app twice to the Screen Recording grant.
+
+### Fixed
+
+- Locally built apps report the version from the nearest git tag instead of the
+  placeholder in `Info.plist`, which had made the in-app update check offer a version
+  "newer" than the code actually running.
+
 ## [0.1.2] - 2026-09-26
 
 ### Changed

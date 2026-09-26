@@ -36,6 +36,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installMainMenu()
         installStatusItem()
 
+        // A downloaded copy offers to install itself: running from Downloads, or straight
+        // out of the disk image, is what makes macOS treat every launch as a new app.
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+            print("[install] path=\(Bundle.main.bundlePath) downloaded=\(SelfInstaller.isDownloadedCopy)")
+        }
+
+        if SelfInstaller.isDownloadedCopy {
+            offerToInstall()
+            return
+        }
+
         controller.onStateChanged = { [weak self] state in
             self?.show(state)
         }
@@ -72,6 +83,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private var observers = Set<AnyCancellable>()
+
+    /// Move this copy into /Applications, then start it from there.
+    ///
+    /// This exists because a quarantined, non-notarised app run from Downloads or from the
+    /// disk image is executed out of a fresh random directory every launch, so macOS never
+    /// recognises it as the same app and the Screen Recording grant cannot be remembered.
+    /// Installing it once removes the whole class of problem.
+    private func offerToInstall() {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Install \(AppInfo.name) in Applications?"
+        alert.informativeText = """
+        This copy is running from a temporary location, which is why macOS asks for Screen \
+        Recording permission over and over: each launch looks like a different app.
+
+        Installing it into Applications fixes that and remembers the permission. You will \
+        only be asked once.
+        """
+        alert.addButton(withTitle: "Install to Applications")
+        alert.addButton(withTitle: "Quit")
+
+        // LIVESUBTITLES_AUTOINSTALL=1 skips the prompt so this path can be exercised.
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_AUTOINSTALL"] != nil {
+            performInstall()
+            return
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            NSApp.terminate(nil)
+            return
+        }
+        performInstall()
+    }
+
+    private func performInstall() {
+        do {
+            try SelfInstaller.install()
+            SelfInstaller.relaunchInstalled()
+            NSApp.terminate(nil)
+        } catch {
+            let failure = NSAlert()
+            failure.alertStyle = .warning
+            failure.messageText = "Could not install automatically"
+            failure.informativeText = """
+            \(error.localizedDescription)
+
+            Drag \(AppInfo.name) into Applications yourself, then open it from there.
+            """
+            failure.addButton(withTitle: "Show Applications Folder")
+            failure.addButton(withTitle: "Quit")
+            if failure.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications"))
+            }
+            NSApp.terminate(nil)
+        }
+    }
 
     // MARK: - Menu bar
 

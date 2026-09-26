@@ -45,6 +45,17 @@ enum AppInfo {
         URL(string: "https://github.com/\(githubOwner)/\(githubRepository)/releases/latest")!
     }
 
+    /// True when macOS is running this copy from its random, read-only "App Translocation"
+    /// directory, which it does for a quarantined app it cannot verify in place.
+    ///
+    /// Every launch then happens at a different path, so the app looks like a different app
+    /// each time and the Screen Recording grant can never stick - which is why the
+    /// permission prompt keeps coming back even though the tick box is already on. The cure
+    /// is to move the app to /Applications and open it from there.
+    static var isTranslocated: Bool {
+        Bundle.main.bundlePath.contains("/AppTranslocation/")
+    }
+
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }

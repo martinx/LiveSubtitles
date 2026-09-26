@@ -19,9 +19,10 @@ Grab the latest release — a disk image you drag to Applications:
 
 **<https://github.com/martinx/LiveSubtitles/releases/latest>**
 
-1. Open **LiveSubtitles.dmg** and drag **Live Subtitles** onto the Applications
-   shortcut. (The release also carries `LiveSubtitles.zip` — that is what the in-app
-   updater downloads.)
+1. Open **LiveSubtitles.dmg** (or the zip — that is what the in-app updater downloads)
+   and double-click **Live Subtitles**. It sees that it is running from a download and
+   offers to install itself into Applications, then relaunches from there. Dragging it
+   across yourself works just as well.
 2. Launch it. macOS asks for **Screen Recording** — that is how system audio is read.
    Grant it under *System Settings → Privacy & Security → Screen Recording*, then
    relaunch if you had to change it.
@@ -29,6 +30,15 @@ Grab the latest release — a disk image you drag to Applications:
 
 The first run also downloads and compiles the speech model — see
 [First run](#first-run).
+
+> **Why does it insist on living in Applications?** A quarantined app that has not been
+> notarised gets run by macOS from a fresh random directory on every launch ("App
+> Translocation") when it is opened from Downloads or from the disk image. Each launch
+> then looks like a different app, so the Screen Recording grant can never be remembered
+> and the permission prompt keeps coming back no matter how many times the box is ticked.
+> Installing once removes the whole problem — and the released builds are signed and
+> [notarised](#signing-and-notarising) so downloads are not quarantined in the first
+> place.
 
 ## Requirements
 
