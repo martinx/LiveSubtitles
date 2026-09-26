@@ -343,10 +343,6 @@ final class CaptionController {
 
         // Analyse in the background: the transcript is already saved and usable, and the
         // speaker pass takes about twenty seconds for an episode.
-        // Switched off deliberately: the converter works as a standalone program but fails
-        // inside the app with an opaque _GenericObjCError, and a pass that runs on every
-        // session end and always fails is worse than no pass. The schema, the recorder and
-        // the analyzer are all in place; this is the one switch to flip once that is fixed.
         if SessionAnalyzer.isEnabled,
            let url = try? SessionRecorder.url(for: session.id),
            FileManager.default.fileExists(atPath: url.path) {

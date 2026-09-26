@@ -22,8 +22,14 @@ import LiveSubtitlesKit
 actor SessionAnalyzer {
     static let shared = SessionAnalyzer()
 
-    /// Off until the WAV conversion works inside the app. See the note at the call site.
-    static let isEnabled = false
+    /// On. What this gates had one bug left in it: reading past the end of a file throws, and
+    /// in the app it throws `_GenericObjCError 0` rather than the documented `eofErr (-39)`,
+    /// so a read that had completed was being treated as a failure.
+    static let isEnabled = true
+
+    /// On. The conversion that this gates had one bug left in it: reading past the end of a
+    /// file throws, and in the app it throws `_GenericObjCError 0` rather than the documented
+    /// `eofErr (-39)`, so a complete read was being read as a failure.
 
     /// Loaded once and kept: the model is 14 MB and loading it per session would be silly.
     private var diarizer: OfflineSortformerDiarizer?
@@ -109,9 +115,19 @@ actor SessionAnalyzer {
     /// than a resample — but it is written as a general copy so a differently shaped file
     /// still comes out at the rate the model wants.
     private func toWAV(_ source: URL) throws -> URL {
+        let debug = ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil
+        func step(_ message: String) { if debug { print("[analyze]   \(message)") } }
+
+        step("opening source \(source.lastPathComponent)")
         let input = try AVAudioFile(forReading: source)
-        let target = FileManager.default.temporaryDirectory
+        step("source open ok, frames=\(input.length)")
+
+        // Written beside the recording rather than to the temporary directory: that folder is
+        // written to on every session, so it is known to work, and it removes one variable
+        // from a conversion that failed here while working standalone.
+        let target = source.deletingLastPathComponent()
             .appendingPathComponent("analyze-\(UUID().uuidString).wav")
+        step("target \(target.path)")
 
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -121,9 +137,12 @@ actor SessionAnalyzer {
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false,
         ]
+        step("creating output file")
         var output: AVAudioFile? = try AVAudioFile(forWriting: target, settings: settings)
+        step("output created, format=\(output?.processingFormat.description ?? "?")")
 
         // Read into the input's own format and let AVAudioFile convert on the way out.
+        var writtenFrames = 0
         let chunk: AVAudioFrameCount = 16_384
         guard let buffer = AVAudioPCMBuffer(pcmFormat: input.processingFormat,
                                             frameCapacity: chunk) else {
@@ -133,16 +152,31 @@ actor SessionAnalyzer {
             do {
                 try input.read(into: buffer)
             } catch {
-                // AVAudioFile signals the end of a file by throwing eofErr (-39), not by
-                // returning an empty buffer. Treating it as a failure aborted the whole
-                // analysis after every frame had already been written.
+                // AVAudioFile signals the end of a file by throwing rather than by returning
+                // an empty buffer, and the error is not always the documented eofErr (-39):
+                // in the app the same read produces _GenericObjCError code 0. Both mean the
+                // stream is finished. Treating either as a failure aborted the analysis after
+                // every frame had already been written — which is what happened, twice.
                 let nsError = error as NSError
-                if nsError.domain == NSOSStatusErrorDomain, nsError.code == -39 { break }
+                let endOfStream = (nsError.domain == NSOSStatusErrorDomain && nsError.code == -39)
+                    || nsError.domain == "Foundation._GenericObjCError"
+                if endOfStream {
+                    step("read reached end of stream: \(nsError.domain)/\(nsError.code)")
+                    break
+                }
+                step("READ failed: \(nsError.domain)/\(nsError.code)")
                 throw error
             }
             if buffer.frameLength == 0 { break }
-            try output?.write(from: buffer)
+            do { try output?.write(from: buffer) }
+            catch {
+                let ns = error as NSError
+                step("WRITE failed after \(writtenFrames) frames: \(ns.domain)/\(ns.code)")
+                throw error
+            }
+            writtenFrames += Int(buffer.frameLength)
         }
+        step("wrote \(writtenFrames) frames")
 
         // The WAV header — including its data size — is only written when the file is
         // released. Returning while it is still alive leaves a file that reads as zero
