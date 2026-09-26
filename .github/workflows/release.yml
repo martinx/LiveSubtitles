@@ -92,8 +92,8 @@ jobs:
           set -euo pipefail
           printf '%s' "$APPLE_API_KEY_P8" | openssl base64 -d -A -out "$RUNNER_TEMP/AuthKey.p8"
 
-      - name: Package for notarisation
-        if: env.HAS_SIGNING_CERT == 'true'
+      # Always: the zip is the release asset, signed or not.
+      - name: Package the release
         run: make dist
 
       - name: Notarise
