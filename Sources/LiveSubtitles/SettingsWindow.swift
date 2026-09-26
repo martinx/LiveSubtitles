@@ -2,13 +2,37 @@
 //  SettingsWindow.swift
 //  LiveSubtitles
 //
-//  A tabbed, native settings window. Engine options need a restart to take effect (they
-//  are baked into the speech manager when it is constructed); everything else applies
-//  immediately.
+//  A tabbed settings window in the current design language: a glass capsule for the
+//  sections, a glass card per group. Engine options need a reload to take effect (they are
+//  baked into the speech manager when it is constructed); everything else applies at once.
 //
 
 import AppKit
 import SwiftUI
+
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general, engine, appearance, shortcuts
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general:    return "General"
+        case .engine:     return "Engine"
+        case .appearance: return "Appearance"
+        case .shortcuts:  return "Shortcuts"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general:    return "gearshape"
+        case .engine:     return "speedometer"
+        case .appearance: return "textformat.size"
+        case .shortcuts:  return "keyboard"
+        }
+    }
+}
 
 @MainActor
 struct SettingsView: View {
@@ -20,200 +44,299 @@ struct SettingsView: View {
     let onCopy: () -> Void
     let onClear: () -> Void
 
+    @State private var tab: SettingsTab = .general
+
     var body: some View {
-        TabView {
-            general
-                .tabItem { Label("General", systemImage: "gearshape") }
-            engine
-                .tabItem { Label("Engine", systemImage: "speedometer") }
-            appearance
-                .tabItem { Label("Appearance", systemImage: "textformat.size") }
-            shortcuts
-                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+        VStack(spacing: 0) {
+            sectionBar
+            ScrollView {
+                VStack(alignment: .leading, spacing: Metrics.paragraphSpacing) {
+                    switch tab {
+                    case .general:    general
+                    case .engine:     engine
+                    case .appearance: appearance
+                    case .shortcuts:  shortcuts
+                    }
+                }
+                .padding(Metrics.panePadding)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
-        .frame(width: 560, height: 500)
+        .frame(width: 620, height: 620)
+    }
+
+    private var sectionBar: some View {
+        GlassControlGroup {
+            ForEach(SettingsTab.allCases) { item in
+                Button {
+                    tab = item
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: item.symbol).font(.system(size: 12))
+                        Text(item.title).font(.system(size: 12.5,
+                                                      weight: tab == item ? .semibold : .regular))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(tab == item ? AnyShapeStyle(Color.accentColor.opacity(0.22))
+                                            : AnyShapeStyle(.clear),
+                                in: Capsule())
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(tab == item ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            }
+        }
+        .padding(.top, 14)
+        .padding(.bottom, 6)
     }
 
     // MARK: - General
 
+    @ViewBuilder
     private var general: some View {
-        Form {
-            Section {
-                Toggle("Start listening when the app launches", isOn: $settings.startAtLaunch)
-                Toggle("Show Dock icon", isOn: $settings.showInDock)
-                Toggle("Check for updates automatically", isOn: $settings.checkForUpdates)
-            } header: {
-                Label("Startup", systemImage: "power")
-            } footer: {
-                Text("The app is a menu-bar accessory, so it never takes activation away "
-                     + "from the video unless the Dock icon is on. The update check is a "
-                     + "once-a-day request to GitHub; nothing about you is sent.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        SettingsCard("Startup", symbol: "power",
+                     footer: "The app is a menu-bar accessory, so it never takes activation away "
+                           + "from the video unless the Dock icon is on. The update check is a "
+                           + "once-a-day request to GitHub; nothing about you is sent.") {
+            ToggleRow("Start listening when the app launches", isOn: $settings.startAtLaunch)
+            Divider()
+            ToggleRow("Show Dock icon", isOn: $settings.showInDock)
+            Divider()
+            ToggleRow("Check for updates automatically", isOn: $settings.checkForUpdates)
+        }
 
-            Section {
-                Picker("Start a new line after", selection: $settings.newLineAfterSilence) {
+        SettingsCard("Behaviour", symbol: "text.bubble",
+                     footer: settings.draggable
+                        ? "Drag the caption bar to move the overlay; the position is remembered per "
+                        + "display. Turn off to make it fully click-through."
+                        : "Click-through: no part of the overlay takes a click, and it stays where it is.") {
+            Row("Start a new line after") {
+                Picker("", selection: $settings.newLineAfterSilence) {
                     Text("Off — keep appending").tag(0.0)
                     Text("2 s of quiet").tag(2.0)
                     Text("3 s of quiet").tag(3.0)
                     Text("5 s of quiet").tag(5.0)
                     Text("8 s of quiet").tag(8.0)
                 }
-                Toggle("Keep captions on screen", isOn: $settings.alwaysVisible)
-                Toggle("Drag to reposition", isOn: $settings.draggable)
-                Button("Reset overlay position", action: settings.resetPosition)
-            } header: {
-                Label("Behaviour", systemImage: "text.bubble")
-            } footer: {
-                Text(settings.draggable
-                     ? "Drag the caption bar to move the overlay; the position is remembered per display. Turn off to make it fully click-through."
-                     : "Click-through: no part of the overlay takes a click, and it stays where it is.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .labelsHidden()
+                .frame(width: 190)
             }
-
-            Section {
-                HStack {
-                    Button("Export…", action: onExport)
-                    Button("Copy", action: onCopy)
-                    Spacer()
-                    Button("Clear", role: .destructive, action: onClear)
-                        .disabled(transcript.isEmpty)
-                }
-            } header: {
-                Label("Transcript", systemImage: "square.and.arrow.down")
-            } footer: {
-                Text(transcript.isEmpty
-                     ? "Nothing captured yet."
-                     : "\(transcript.count) line\(transcript.count == 1 ? "" : "s") captured this session. Stopping the engine keeps them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Divider()
+            ToggleRow("Keep captions on screen", isOn: $settings.alwaysVisible)
+            Divider()
+            ToggleRow("Drag to reposition", isOn: $settings.draggable)
+            Divider()
+            Row("") {
+                Button("Reset overlay position", action: settings.resetPosition)
             }
         }
-        .formStyle(.grouped)
+
+        SettingsCard("Transcript", symbol: "square.and.arrow.down",
+                     footer: transcript.isEmpty
+                        ? "Nothing captured yet."
+                        : "\(transcript.count) line\(transcript.count == 1 ? "" : "s") captured this "
+                        + "session. Stopping the engine keeps them.") {
+            HStack(spacing: 8) {
+                Button("Export…", action: onExport)
+                Button("Copy", action: onCopy)
+                Spacer()
+                Button("Clear", role: .destructive, action: onClear)
+                    .disabled(transcript.isEmpty)
+            }
+        }
     }
 
     // MARK: - Engine
 
+    @ViewBuilder
     private var engine: some View {
-        Form {
-            Section {
-                Picker("Model", selection: $settings.modelID) {
+        SettingsCard("Speech model", symbol: "waveform",
+                     footer: "Changes take effect straight away — the engine reloads itself in about "
+                           + "two seconds, and a newly selected model downloads on first use. Your "
+                           + "transcript is kept. Reload Engine is only needed if the engine stops "
+                           + "on its own.") {
+            Row("Model") {
+                Picker("", selection: $settings.modelID) {
                     ForEach(SpeechModel.allCases) { model in
                         Text(model.title).tag(model.rawValue)
                     }
                 }
-                LabeledContent("") {
-                    HStack {
-                        Spacer()
-                        Text(selectedModelNote)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Picker("End a sentence after", selection: $settings.eouDebounceMs) {
+                .labelsHidden()
+                .frame(width: 250)
+            }
+            Text((SpeechModel(rawValue: settings.modelID) ?? .default).note)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Divider()
+            Row("End a sentence after") {
+                Picker("", selection: $settings.eouDebounceMs) {
                     Text("0.4 s of silence").tag(400)
                     Text("0.6 s of silence").tag(600)
                     Text("1.0 s of silence").tag(1000)
                     Text("1.3 s of silence").tag(1300)
                 }
+                .labelsHidden()
+                .frame(width: 190)
+            }
+            Divider()
+            Row("") {
                 Button("Reload Engine", action: onApplyEngine)
-            } header: {
-                Label("Speech model", systemImage: "waveform")
-            } footer: {
-                Text("Changes take effect straight away — the engine reloads itself in about "
-                     + "two seconds, and a newly selected model downloads on first use. Your "
-                     + "transcript is kept. Reload Engine is only needed if the engine stops "
-                     + "on its own.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-    }
-
-    private var selectedModelNote: String {
-        (SpeechModel(rawValue: settings.modelID) ?? .default).note
     }
 
     // MARK: - Appearance
 
+    @ViewBuilder
     private var appearance: some View {
-        Form {
-            Section {
-                slider("Font size", value: $settings.fontSize, range: 16...48, suffix: "pt")
-                slider("Width", value: $settings.widthFraction, range: 0.4...0.98, percent: true)
-                slider("Background", value: $settings.backgroundOpacity, range: 0...0.95, percent: true)
-                slider("Distance from bottom", value: $settings.bottomInset, range: 0...600, suffix: "pt")
-                Picker("Max lines", selection: $settings.lineLimit) {
-                    ForEach(1...5, id: \.self) { count in
-                        Text("\(count)").tag(count)
-                    }
+        SettingsCard("Overlay", symbol: "rectangle.on.rectangle",
+                     footer: "1 = current sentence only · 2 = previous line above it · more keeps history.") {
+            slider("Font size", value: $settings.fontSize, range: 16...48, suffix: "pt")
+            Divider()
+            slider("Width", value: $settings.widthFraction, range: 0.4...0.98, percent: true)
+            Divider()
+            slider("Background", value: $settings.backgroundOpacity, range: 0...0.95, percent: true)
+            Divider()
+            slider("Distance from bottom", value: $settings.bottomInset, range: 0...600, suffix: "pt")
+            Divider()
+            Row("Max lines") {
+                Picker("", selection: $settings.lineLimit) {
+                    ForEach(1...5, id: \.self) { count in Text("\(count)").tag(count) }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
-            } header: {
-                Label("Overlay", systemImage: "rectangle.on.rectangle")
-            } footer: {
-                Text("1 = current sentence only · 2 = previous line above it · more keeps history.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .frame(width: 210)
             }
         }
-        .formStyle(.grouped)
     }
 
     // MARK: - Shortcuts
 
+    @ViewBuilder
     private var shortcuts: some View {
-        Form {
-            Section {
-                LabeledContent("Start listening") {
-                    ShortcutRecorder(shortcut: $settings.startShortcut)
-                }
-                LabeledContent("Pause listening") {
-                    ShortcutRecorder(shortcut: $settings.pauseShortcut)
-                }
-                LabeledContent("Stop listening") {
-                    ShortcutRecorder(shortcut: $settings.stopShortcut)
-                }
-            } header: {
-                Label("Global shortcuts", systemImage: "keyboard")
-            } footer: {
-                Text("These work while any app is frontmost. Record expects at least one "
-                     + "modifier (⌘ ⌥ ⌃ ⇧); Escape cancels, Delete clears. A combination "
-                     + "another app already owns will silently not take effect.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                Text("Pause keeps the model loaded so you can come straight back. Stop "
-                     + "releases it — about 600 MB — and starting again reloads it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        SettingsCard("Global shortcuts", symbol: "keyboard",
+                     footer: "These work while any app is frontmost. Record expects at least one "
+                           + "modifier (⌘ ⌥ ⌃ ⇧); Escape cancels, Delete clears. A combination "
+                           + "another app already owns will silently not take effect.") {
+            Row("Start listening") { ShortcutRecorder(shortcut: $settings.startShortcut) }
+            Divider()
+            Row("Pause listening") { ShortcutRecorder(shortcut: $settings.pauseShortcut) }
+            Divider()
+            Row("Stop listening") { ShortcutRecorder(shortcut: $settings.stopShortcut) }
         }
-        .formStyle(.grouped)
+
+        SettingsCard("What the states cost", symbol: "info.circle") {
+            Text("Pause keeps the model loaded so you can come straight back. Stop releases it — "
+                 + "about 600 MB — and starting again reloads it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
-    // MARK: - Helpers
+    // MARK: - Pieces
 
     private func slider(_ title: String,
                         value: Binding<Double>,
                         range: ClosedRange<Double>,
                         suffix: String = "",
                         percent: Bool = false) -> some View {
-        LabeledContent(title) {
+        Row(title) {
             HStack(spacing: 10) {
-                Slider(value: value, in: range)
+                Slider(value: value, in: range).frame(width: 220)
                 Text(percent
                      ? "\(Int((value.wrappedValue * 100).rounded()))%"
                      : "\(Int(value.wrappedValue.rounded())) \(suffix)")
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    .frame(width: 52, alignment: .trailing)
+                    .frame(width: 54, alignment: .trailing)
             }
+        }
+    }
+}
+
+/// A labelled group of settings on one glass card.
+private struct SettingsCard<Content: View>: View {
+    let title: String
+    let symbol: String
+    var footer: String?
+    @ViewBuilder var content: Content
+
+    init(_ title: String,
+         symbol: String,
+         footer: String? = nil,
+         @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.symbol = symbol
+        self.footer = footer
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+
+            VStack(alignment: .leading, spacing: 9) {
+                content
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassPanel(cornerRadius: Metrics.cardRadius)
+
+            if let footer {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// One settings row: a label on the left, its control on the right.
+private struct Row<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if !title.isEmpty {
+                Text(title)
+                Spacer(minLength: 12)
+            }
+            content
+        }
+    }
+}
+
+private struct ToggleRow: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    init(_ title: String, isOn: Binding<Bool>) {
+        self.title = title
+        self._isOn = isOn
+    }
+
+    var body: some View {
+        // `.switch` is not the default outside a Form on macOS: without it these render as
+        // checkboxes on the left, which is not what a settings window looks like.
+        HStack {
+            Text(title)
+            Spacer(minLength: 12)
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
         }
     }
 }
@@ -238,8 +361,7 @@ final class SettingsWindow {
         if let window {
             window.contentViewController = NSHostingController(rootView: view)
         } else {
-            let hosting = NSHostingController(rootView: view)
-            let created = NSWindow(contentViewController: hosting)
+            let created = NSWindow(contentViewController: NSHostingController(rootView: view))
             created.title = "Live Subtitles Settings"
             created.styleMask = [.titled, .closable]
             created.isReleasedWhenClosed = false
