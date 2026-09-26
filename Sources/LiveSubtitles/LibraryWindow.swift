@@ -411,6 +411,12 @@ struct LibraryView: View {
                                   help: model.translationPhase.label) {
                     model.toggleTranslation()
                 }
+                ToolbarIconButton(symbol: model.showsEnhanced ? "wand.and.stars" : "doc.plaintext",
+                                  help: model.showsEnhanced
+                                      ? "Showing the enhanced reading — speakers included"
+                                      : "Showing the raw transcript") {
+                    model.showsEnhanced.toggle()
+                }
                 ToolbarIconButton(symbol: "note.text", help: "Write a note about this session") {
                     model.beginNote(cue: model.selectedCue)
                 }
@@ -654,8 +660,15 @@ struct LibraryView: View {
 
     private var statusBarBody: some View {
         HStack(spacing: 10) {
-            Text("Double-click a word for its meaning · right-click for more")
-                .font(.caption).foregroundStyle(.secondary)
+            if model.showsEnhanced, !model.sessionSpeakers.isEmpty {
+                Label("\(model.sessionSpeakers.count) speaker\(model.sessionSpeakers.count == 1 ? "" : "s")",
+                      systemImage: "person.2.wave.2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Double-click a word for its meaning · right-click for more")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Spacer()
             if let filed = model.lastFiled {
                 Label(filed, systemImage: "folder.badge.checkmark")
@@ -698,6 +711,13 @@ private struct TokenizedLine: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
+            // Who is speaking, when the analysis pass has told us. The raw view drops it.
+            if model.showsEnhanced, let speaker = cue.speaker {
+                SpeakerChip(speaker: speaker, index: model.sessionSpeakers.firstIndex(of: speaker))
+            } else {
+                Color.clear.frame(width: 26)
+            }
+
             Button {
                 model.selectedCueID = cue.id
             } label: {
@@ -1396,6 +1416,36 @@ private struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+/// A speaker, as a colour and a number. Colour is what makes a page of dialogue scannable;
+/// the number is what makes it referable.
+private struct SpeakerChip: View {
+    let speaker: String
+    let index: Int?
+
+    private static let palette: [Color] = [
+        .blue, .orange, .purple, .green, .pink, .teal,
+    ]
+
+    private var color: Color {
+        // FluidAudio numbers speakers from zero; people number things from one.
+        Self.palette[(index ?? 0) % Self.palette.count]
+    }
+
+    private var label: String {
+        guard let number = Int(speaker) else { return speaker }
+        return "S\(number + 1)"
+    }
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(color)
+            .frame(width: 24, height: 16)
+            .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .help("Speaker \(label.dropFirst())")
     }
 }
 

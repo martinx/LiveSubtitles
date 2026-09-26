@@ -199,6 +199,21 @@ final class LibraryModel: ObservableObject {
     // The note being written.
     @Published var noteDraft: NoteDraft?
 
+    /// Whether the reader shows the enhanced layer — currently the speaker labels, and later
+    /// the re-recognised text. Off shows exactly what the live pass heard.
+    @Published var showsEnhanced = true
+
+    /// Speakers seen in the open session, in the order they first appear, so the chips can be
+    /// coloured consistently down the page.
+    var sessionSpeakers: [String] {
+        var seen: [String] = []
+        for cue in readerCues {
+            guard let speaker = cue.speaker, !seen.contains(speaker) else { continue }
+            seen.append(speaker)
+        }
+        return seen
+    }
+
     // ⌘K palette.
     /// A one-line acknowledgement shown after the app files something by itself, so the
     /// move is never silent.
