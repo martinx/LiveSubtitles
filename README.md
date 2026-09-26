@@ -21,6 +21,33 @@ Menu-bar app. Fully on-device — nothing leaves the machine.
 `build.sh debug` builds faster but runs slower — use it while iterating, release
 for actually watching something.
 
+## Install into /Applications
+
+```bash
+./install.sh     # release build + copy to /Applications/LiveSubtitles.app
+```
+
+Then launch it like any other app — Spotlight (`Cmd-Space` → `LiveSubtitles`),
+Launchpad — or:
+
+```bash
+open -a LiveSubtitles
+```
+
+Re-run `./install.sh` after a change to update the installed copy. For day-to-day
+development `./build.sh && ./run.sh` runs the bundle from `build/` without touching
+/Applications.
+
+The **Screen Recording** grant is tied to the app's signature, so updating it in
+place keeps the permission; if macOS prompts again, re-grant it under
+*System Settings → Privacy & Security → Screen Recording*.
+
+### Multiple displays
+
+The overlay opens on the display with the menu bar. Drag it to another display and
+it is remembered there. It is always kept fully on a screen, so it cannot be dragged
+somewhere it can no longer be grabbed.
+
 ## First run
 
 1. **Screen Recording permission** is required to capture system audio. macOS

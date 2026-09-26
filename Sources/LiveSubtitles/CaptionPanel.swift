@@ -126,11 +126,31 @@ final class CaptionPanel: NSPanel {
         }
     }
 
-    /// Keep the overlay reachable: dragging it past an edge must not be able to
-    /// strand it off-screen, where it cannot be grabbed again.
+    /// The screen with the menu bar. `NSScreen.main` tracks the key window, and an
+    /// accessory app with a non-activating panel has no reliable one, so it can flip
+    /// between displays - which used to drop the overlay onto the wrong monitor.
+    private var primaryScreen: NSScreen? {
+        NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main
+    }
+
+    private func screenOverlappingMost(_ rect: NSRect) -> NSScreen? {
+        NSScreen.screens
+            .map { ($0, $0.visibleFrame.intersection(rect)) }
+            .filter { !$0.1.isNull }
+            .max { $0.1.width * $0.1.height < $1.1.width * $1.1.height }?
+            .0
+    }
+
+    /// Keep the overlay reachable without fencing it to one display: a position that
+    /// already fits on some screen is left alone (so it can be dragged to a second
+    /// monitor), and only a position that would be lost gets snapped back.
     private func clamped(_ origin: NSPoint, size: NSSize) -> NSPoint {
-        guard let screen = NSScreen.main else { return origin }
-        let bounds = screen.visibleFrame
+        let rect = NSRect(origin: origin, size: size)
+        if NSScreen.screens.contains(where: { $0.visibleFrame.contains(rect) }) {
+            return origin
+        }
+        guard let target = screenOverlappingMost(rect) ?? primaryScreen else { return origin }
+        let bounds = target.visibleFrame
         let maxX = max(bounds.minX, bounds.maxX - size.width)
         let maxY = max(bounds.minY, bounds.maxY - size.height)
         return NSPoint(x: min(max(origin.x, bounds.minX), maxX),
@@ -140,7 +160,12 @@ final class CaptionPanel: NSPanel {
     // MARK: - Layout
 
     func applyLayout(settings: Settings) {
-        guard let screen = NSScreen.main else { return }
+        // Lay out on the screen the saved position lives on, so an overlay parked on
+        // a second monitor stays there.
+        let savedRect = NSRect(x: settings.panelX, y: settings.panelY, width: 1, height: 1)
+        let screen = (settings.hasCustomPosition ? screenOverlappingMost(savedRect) : nil)
+            ?? primaryScreen
+        guard let screen else { return }
         let visible = screen.visibleFrame
         let width = min(visible.width - 60, visible.width * settings.widthFraction)
         let height = CGFloat(settings.lineLimit) * (settings.fontSize * 1.5) + 30

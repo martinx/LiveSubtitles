@@ -20,6 +20,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_PATH/LiveSubtitles" "$APP/Contents/MacOS/LiveSubtitles"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+if [ -f Resources/AppIcon.icns ]; then
+  cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+fi
 
 # Prefer a real signing identity: macOS remembers the Screen Recording grant per
 # signature, so a stable identity means you only approve the permission once.
