@@ -43,12 +43,34 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     }
 }
 
+/// Everything the word card shows. Identifiable by the word *and* the line it came from,
+/// so a popover can bind to exactly one token.
+struct WordInspection: Identifiable, Equatable {
+    let word: String
+    let lemma: String
+    let cueID: Int64?
+    var definition: String?
+    var translation: String?
+
+    var id: String { "\(cueID ?? -1)-\(lemma)" }
+}
+
+/// A note being written, with its link back to the line it belongs to.
+struct NoteDraft: Identifiable {
+    let id = UUID()
+    let sessionID: String
+    let cueID: Int64?
+    var kind: Note.Kind
+    var text: String
+}
+
 /// What the translate button is doing, in a form the toolbar can show.
 enum TranslationPhase: Equatable {
     case off
     case waiting        // the task has been asked to run
     case downloading    // the language pack is not on this Mac yet
     case working        // translating
+    case glossing       // only a looked-up word, paragraphs untouched
     case done
     case failed(String)
 
@@ -58,6 +80,7 @@ enum TranslationPhase: Equatable {
         case .waiting:         return "Preparing…"
         case .downloading:     return "Downloading Chinese (one time, macOS will ask)"
         case .working:         return "Translating…"
+        case .glossing:        return "Translated on demand"
         case .done:            return "Translated"
         case .failed(let why): return "Translation failed: \(why)"
         }
@@ -93,13 +116,21 @@ final class LibraryModel: ObservableObject {
     // Translation: paragraph by paragraph, on demand, in Simplified Chinese.
     @Published private(set) var translationPhase: TranslationPhase = .off
     @Published private(set) var translations: [Int: String] = [:]
+    /// Chinese glosses for words looked up on their own, keyed by lemma. They travel in the
+    /// same batch as the paragraphs, so a looked-up word needs no second translation session.
+    @Published private(set) var glosses: [String: String] = [:]
+    /// Lemmas waiting to be glossed: translated even when paragraph translation is off.
+    @Published private(set) var wantedWords: [String] = []
     /// Bumped to ask the view's `translationTask` to run; the session only exists inside it.
     @Published private(set) var translationRequestID = 0
 
-    // Inspector.
-    @Published private(set) var inspectedWord: String?
-    @Published private(set) var definition: String?
+    // Word inspection: drives the popover anchored on the word itself, so the transcript
+    // stays the interface instead of sending every gesture down to a panel.
+    @Published private(set) var inspection: WordInspection?
     @Published private(set) var occurrences: [SearchHit] = []
+
+    // The note being written.
+    @Published var noteDraft: NoteDraft?
 
     private var store: HistoryStore?
     private var searchTask: Task<Void, Never>?
@@ -133,6 +164,12 @@ final class LibraryModel: ObservableObject {
 
     var translationOn: Bool { translationPhase != .off }
 
+    /// The same toggle, expressed as "turn it on" for menu items.
+    func toggleTranslationOn() {
+        guard !translationOn else { return }
+        toggleTranslation()
+    }
+
     func toggleTranslation() {
         if translationOn {
             translationPhase = .off
@@ -143,12 +180,22 @@ final class LibraryModel: ObservableObject {
         }
     }
 
+    /// Asks for one word's Chinese without turning on whole-paragraph translation.
+    func requestGloss(for lemma: String) {
+        guard glosses[lemma] == nil else { return }
+        if !wantedWords.contains(lemma) { wantedWords.append(lemma) }
+        if translationPhase == .off { translationPhase = .glossing }
+        translationRequestID += 1
+    }
+
     /// Runs inside the SwiftUI `translationTask`, which is the only place a usable session
     /// exists. Paragraphs are translated as blocks so the Chinese reads as prose rather than
     /// line fragments, and results are keyed by paragraph index.
     @available(macOS 15.0, *)
     func runTranslation(paragraphs: [[Cue]], using session: TranslationSession) async {
-        guard !paragraphs.isEmpty else {
+        let translatingParagraphs = translationOn && !paragraphs.isEmpty
+        let words = wantedWords
+        guard translatingParagraphs || !words.isEmpty else {
             translationPhase = .done
             return
         }
@@ -165,21 +212,43 @@ final class LibraryModel: ObservableObject {
             try await session.prepareTranslation()
             translationPhase = .working
 
-            let requests = paragraphs.enumerated().map { index, paragraph in
-                TranslationSession.Request(
-                    sourceText: paragraph.map(\.text).joined(separator: " "),
-                    clientIdentifier: String(index))
+            // Paragraphs and words go in one batch; the tag says which is which on the way
+            // back, where the order is all that is guaranteed.
+            var requests: [TranslationSession.Request] = []
+            if translatingParagraphs {
+                requests += paragraphs.enumerated().map { index, paragraph in
+                    TranslationSession.Request(
+                        sourceText: paragraph.map(\.text).joined(separator: " "),
+                        clientIdentifier: "p\(index)")
+                }
             }
+            requests += words.map {
+                TranslationSession.Request(sourceText: $0, clientIdentifier: "w\($0)")
+            }
+
             let responses = try await session.translations(from: requests)
 
-            // Responses come back in request order, so index them rather than trusting a
-            // client identifier to survive the round trip.
-            var translated: [Int: String] = [:]
-            for (index, response) in responses.enumerated() where index < paragraphs.count {
-                translated[index] = response.targetText
+            var translated: [Int: String] = translatingParagraphs ? [:] : translations
+            var freshGlosses = glosses
+            for response in responses {
+                switch response.clientIdentifier {
+                case .some(let tag) where tag.hasPrefix("p"):
+                    if let index = Int(tag.dropFirst()), index < paragraphs.count {
+                        translated[index] = response.targetText
+                    }
+                case .some(let tag) where tag.hasPrefix("w"):
+                    freshGlosses[String(tag.dropFirst())] = response.targetText
+                default:
+                    break
+                }
             }
             translations = translated
-            translationPhase = .done
+            glosses = freshGlosses
+            wantedWords.removeAll { freshGlosses[$0] != nil }
+            translationPhase = translatingParagraphs ? .done : .glossing
+            if inspection != nil, let lemma = inspection?.lemma, let gloss = freshGlosses[lemma] {
+                inspection?.translation = gloss
+            }
         } catch {
             translationPhase = .failed(error.localizedDescription)
         }
@@ -224,18 +293,54 @@ final class LibraryModel: ObservableObject {
     }
 
     /// Looks a word up and finds every other line it appears in.
-    func inspect(_ word: String) async {
+    func inspect(_ word: String, in cue: Cue? = nil) async {
         let lemma = DictionaryLookup.lemma(of: word)
-        inspectedWord = lemma
-        definition = DictionaryLookup.entry(for: lemma) ?? DictionaryLookup.entry(for: word)
+        guard let cue else {
+            inspection = WordInspection(word: word, lemma: lemma, cueID: nil,
+                                        definition: DictionaryLookup.entry(for: lemma)
+                                            ?? DictionaryLookup.entry(for: word))
+            occurrences = []
+            return
+        }
+        selectedCueID = cue.id
+        inspection = WordInspection(word: word, lemma: lemma, cueID: cue.id,
+                                    definition: DictionaryLookup.entry(for: lemma)
+                                        ?? DictionaryLookup.entry(for: word))
+        inspection?.translation = nil
+        if let existing = glosses[lemma] { inspection?.translation = existing }
+        requestGloss(for: lemma)
         guard let store else { occurrences = []; return }
-        occurrences = (try? await store.occurrences(of: lemma, excludingCue: selectedCueID)) ?? []
+        occurrences = (try? await store.occurrences(of: lemma, excludingCue: cue.id)) ?? []
     }
 
     func clearInspection() {
-        inspectedWord = nil
-        definition = nil
+        inspection = nil
         occurrences = []
+    }
+
+    // MARK: - Notes
+
+    /// Starts a note against a line, pre-filled with a quote so the link back to the
+    /// sentence is automatic rather than something the user has to type.
+    func beginNote(cue: Cue?, kind: Note.Kind = .note, text: String? = nil) {
+        guard let sessionID = selectedSessionID else { return }
+        let quoted = cue.map { "> \($0.timestamp) \($0.text)\n\n" } ?? ""
+        noteDraft = NoteDraft(sessionID: sessionID,
+                              cueID: cue?.id,
+                              kind: kind,
+                              text: text ?? quoted)
+    }
+
+    func saveNoteDraft() async {
+        guard let draft = noteDraft else { return }
+        let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { noteDraft = nil; return }
+        await addNote(cueID: draft.cueID, kind: draft.kind, text: trimmed)
+        noteDraft = nil
+    }
+
+    func cancelNoteDraft() {
+        noteDraft = nil
     }
 
     /// The list binds straight to `selectedSessionID`; this is what reacting to it means.
@@ -283,8 +388,8 @@ final class LibraryModel: ObservableObject {
 
     /// Saves the inspected word straight into the vocabulary.
     func saveInspectedWord() async {
-        guard let word = inspectedWord else { return }
-        await addNote(cueID: selectedCueID, kind: .word, text: word)
+        guard let inspection else { return }
+        await addNote(cueID: inspection.cueID, kind: .word, text: inspection.lemma)
     }
 
     func deleteNote(_ id: Int64) async {

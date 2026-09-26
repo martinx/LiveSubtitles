@@ -80,6 +80,25 @@ public actor HistoryStore {
             }
             try connection.setUserVersion(1)
         }
+        if connection.userVersion < 2 {
+            try connection.transaction {
+                try connection.execute("""
+                -- A tree: parentID points back at this same table, so depth is unlimited.
+                CREATE TABLE IF NOT EXISTS folders (
+                    id        TEXT PRIMARY KEY,
+                    name      TEXT NOT NULL,
+                    parentID  TEXT REFERENCES folders(id) ON DELETE CASCADE,
+                    createdAt REAL NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS folders_by_parent ON folders(parentID);
+
+                -- ON DELETE SET NULL: deleting a folder must never take transcripts with it.
+                ALTER TABLE sessions ADD COLUMN folderID TEXT REFERENCES folders(id) ON DELETE SET NULL;
+                CREATE INDEX IF NOT EXISTS sessions_by_folder ON sessions(folderID);
+                """)
+            }
+            try connection.setUserVersion(2)
+        }
     }
 
     // MARK: - Sessions
@@ -124,7 +143,8 @@ public actor HistoryStore {
     public func sessions() throws -> [Session] {
         try connection.query("""
             SELECT s.id, s.title, s.startedAt, s.endedAt, s.source, s.modelID,
-                   (SELECT COUNT(*) FROM cues c WHERE c.sessionID = s.id)
+                   (SELECT COUNT(*) FROM cues c WHERE c.sessionID = s.id),
+                   s.folderID
             FROM sessions s
             ORDER BY s.startedAt DESC;
             """) { row in
@@ -134,7 +154,8 @@ public actor HistoryStore {
                     endedAt: row.isNull(3) ? nil : Date(timeIntervalSince1970: row.double(3)),
                     source: row.string(4),
                     modelID: row.string(5),
-                    cueCount: Int(row.int(6)))
+                    cueCount: Int(row.int(6)),
+                    folderID: row.isNull(7) ? nil : row.string(7))
         }
     }
 

@@ -16,6 +16,8 @@ public struct Session: Identifiable, Hashable, Sendable {
     public var source: String
     public var modelID: String
     public var cueCount: Int
+    /// The folder this session sits in, if any. Nil means the root.
+    public var folderID: String?
 
     public init(id: String = UUID().uuidString,
                 title: String,
@@ -23,7 +25,8 @@ public struct Session: Identifiable, Hashable, Sendable {
                 endedAt: Date? = nil,
                 source: String = "",
                 modelID: String = "",
-                cueCount: Int = 0) {
+                cueCount: Int = 0,
+                folderID: String? = nil) {
         self.id = id
         self.title = title
         self.startedAt = startedAt
@@ -31,6 +34,7 @@ public struct Session: Identifiable, Hashable, Sendable {
         self.source = source
         self.modelID = modelID
         self.cueCount = cueCount
+        self.folderID = folderID
     }
 
     public var duration: TimeInterval {

@@ -122,6 +122,58 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertTrue(markdown.contains("**00:00:01**"))
     }
 
+    func testFolderTreeHoldsArbitraryDepth() async throws {
+        let store = try HistoryStore(url: url)
+        let shows = try await store.createFolder("Shows")
+        let season = try await store.createFolder("Severance", parentID: shows.id)
+        let disc = try await store.createFolder("Disc 1", parentID: season.id)
+
+        let session = try await store.startSession(source: "TV", title: "Severance S02E05")
+        try await store.move(session.id, to: disc.id)
+
+        // Selecting a parent must show everything beneath it.
+        let inShows = try await store.sessions(inFolder: shows.id)
+        XCTAssertEqual(inShows.map(\.title), ["Severance S02E05"])
+        XCTAssertEqual(inShows.first?.folderID, disc.id)
+
+        let tree = try await store.folderTree()
+        XCTAssertEqual(tree.count, 1)
+        XCTAssertEqual(tree[0].children.first?.children.first?.folder.name, "Disc 1")
+        XCTAssertEqual(tree[0].totalSessions, 1)
+    }
+
+    func testAFolderCannotBeMovedInsideItself() async throws {
+        let store = try HistoryStore(url: url)
+        let parent = try await store.createFolder("Parent")
+        let child = try await store.createFolder("Child", parentID: parent.id)
+
+        try await store.moveFolder(parent.id, to: child.id)   // would detach the branch
+        let tree = try await store.folderTree()
+        XCTAssertEqual(tree.count, 1, "the parent must stay at the root")
+        XCTAssertEqual(tree[0].children.count, 1)
+    }
+
+    func testDeletingAFolderKeepsItsSessions() async throws {
+        let store = try HistoryStore(url: url)
+        let folder = try await store.createFolder("Temporary")
+        let session = try await store.startSession(source: "TV", title: "Episode")
+        try await store.move(session.id, to: folder.id)
+
+        try await store.deleteFolder(folder.id)
+        let remaining = try await store.sessions()
+        XCTAssertEqual(remaining.count, 1, "a deleted folder must not take transcripts with it")
+        XCTAssertNil(remaining[0].folderID)
+    }
+
+    func testSuggestedFolderNameFromSiblingTitles() async throws {
+        let store = try HistoryStore(url: url)
+        _ = try await store.startSession(source: "TV", title: "Severance S02E01")
+        let second = try await store.startSession(source: "TV", title: "Severance S02E02")
+
+        let suggestion = try await store.suggestedFolderName(for: second.id)
+        XCTAssertEqual(suggestion, "Severance")
+    }
+
     func testPersistenceAcrossReopen() async throws {
         let first = try HistoryStore(url: url)
         let session = try await first.startSession(source: "F")

@@ -2,13 +2,12 @@
 //  LibraryWindow.swift
 //  LiveSubtitles
 //
-//  The study window, laid out the way the design describes it:
+//  The study window. The transcript is the interface: words are targets, so looking one up
+//  opens a card on the word itself rather than sending every gesture down to a panel.
 //
-//    sidebar   the seven sections
-//    toolbar   session, search, replay, speed, summarise, export
-//    reader    the session's paragraphs
-//    inspector the selected line: its words, their definitions, every other line the word
-//              appears in, and its notes
+//    double-click a word   its card: definition, Chinese, every other line it appears in
+//    right-click a word    translate, save to the vocabulary, copy
+//    right-click a line    write a note, mark it, copy it, translate the paragraph
 //
 
 import AppKit
@@ -22,13 +21,10 @@ struct LibraryView: View {
 
     @State private var renaming: Session?
     @State private var renameText = ""
-    @State private var noteText = ""
-    @State private var noteKind: Note.Kind = .word
     @State private var confirmDelete: Session?
 
     var body: some View {
-        translationHost(
-            NavigationSplitView {
+        translationHost(NavigationSplitView {
             List(selection: $model.section) {
                 ForEach(LibrarySection.allCases) { section in
                     Label {
@@ -44,17 +40,19 @@ struct LibraryView: View {
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 280)
-            } detail: {
-                VStack(spacing: 0) {
-                    toolbar
-                    Divider()
-                    pane
-                    Divider()
-                    inspector
-                }
+        } detail: {
+            VStack(spacing: 0) {
+                toolbar
+                Divider()
+                pane
+                Divider()
+                statusBar
             }
-        )
+        })
         .frame(minWidth: 900, minHeight: 560)
+        .sheet(item: $model.noteDraft) { draft in
+            NoteEditor(model: model, draft: draft)
+        }
         .alert("Rename session", isPresented: Binding(get: { renaming != nil },
                                                       set: { if !$0 { renaming = nil } })) {
             TextField("Name", text: $renameText)
@@ -63,8 +61,6 @@ struct LibraryView: View {
                 if let session = renaming { Task { await model.rename(session.id, to: renameText) } }
                 renaming = nil
             }
-        } message: {
-            Text("For example “Severance S02E05”, or anything else you will recognise.")
         }
         .alert("Delete this session?", isPresented: Binding(get: { confirmDelete != nil },
                                                             set: { if !$0 { confirmDelete = nil } })) {
@@ -78,7 +74,6 @@ struct LibraryView: View {
         }
     }
 
-    /// `.translationTask` only exists from macOS 15, so the window carries it only there.
     @ViewBuilder
     private func translationHost<V: View>(_ content: V) -> some View {
         if #available(macOS 15.0, *) {
@@ -103,8 +98,7 @@ struct LibraryView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "rectangle.stack")
-                    Text(model.selectedSession?.title ?? "No session")
-                        .lineLimit(1)
+                    Text(model.selectedSession?.title ?? "No session").lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2)
                 }
             }
@@ -112,22 +106,42 @@ struct LibraryView: View {
             .frame(maxWidth: 260, alignment: .leading)
             .disabled(model.sessions.isEmpty)
 
-            searchField
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
+                TextField("Search every session", text: $model.searchText)
+                    .textFieldStyle(.plain)
+                    .frame(width: 180)
+                if model.isSearching {
+                    Button { model.searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.quaternary, in: Capsule())
 
             Spacer(minLength: 12)
 
-            // Replay, speech, speed and summarising are shown rather than hidden so the
-            // intent stays visible; each says what it is waiting for.
             GlassControlGroup {
                 ToolbarIconButton(symbol: "translate",
                                   help: model.translationPhase.label,
                                   enabled: !model.isSearching) {
                     model.toggleTranslation()
                 }
-                ToolbarIconButton(symbol: "play.circle", help: playHelp, enabled: false)
-                ToolbarIconButton(symbol: "waveform", help: "Speak this line — needs the voice model (phase 4)", enabled: false)
-                ToolbarIconButton(symbol: "gauge.with.needle", help: "Playback speed — needs audio retention (phase 1)", enabled: false)
-                ToolbarIconButton(symbol: "text.bubble", help: "Summarise — needs the local model (phase 7)", enabled: false)
+                ToolbarIconButton(symbol: "note.text", help: "Write a note about this session") {
+                    model.beginNote(cue: model.selectedCue)
+                }
+                .disabled(model.selectedSession == nil)
+                ToolbarIconButton(symbol: "play.circle",
+                                  help: "Replay the original — needs audio retention (phase 1)",
+                                  enabled: false)
+                ToolbarIconButton(symbol: "gauge.with.needle",
+                                  help: "Playback speed — needs audio retention (phase 1)",
+                                  enabled: false)
+                ToolbarIconButton(symbol: "text.bubble",
+                                  help: "Summarise — needs the local model (phase 7)",
+                                  enabled: false)
             }
 
             if let session = model.selectedSession, model.section == .sessions {
@@ -146,28 +160,6 @@ struct LibraryView: View {
         .padding(.vertical, 12)
     }
 
-    private var playHelp: String {
-        "Replay the original — needs audio retention (phase 1 of the design)"
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
-            TextField("Search every session", text: $model.searchText)
-                .textFieldStyle(.plain)
-                .frame(width: 180)
-            if model.isSearching {
-                Button { model.searchText = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(.quaternary, in: Capsule())
-    }
-
     // MARK: - Panes
 
     @ViewBuilder
@@ -179,9 +171,9 @@ struct LibraryView: View {
         case .vocabulary:   vocabularyPane
         case .statistics:   statisticsPane
         case .collections:  placeholder("Collections",
-                                        "Group sessions by series or topic. Coming with the next pass.")
+                                        "Group sessions by series or topic. Next pass.")
         case .writing:      placeholder("Writing",
-                                        "Summaries and graded conversation practice, once the local model is wired in.")
+                                        "Summaries and graded practice, once the local model is in.")
         }
     }
 
@@ -199,10 +191,9 @@ struct LibraryView: View {
                             if index > 0 { Divider().padding(.vertical, 2) }
                             VStack(alignment: .leading, spacing: 6) {
                                 ForEach(paragraph) { cue in
-                                    CueRow(cue: cue,
-                                           notes: model.notesByCue[cue.id] ?? [],
-                                           isSelected: model.selectedCueID == cue.id)
-                                        .onTapGesture { model.selectedCueID = cue.id }
+                                    TokenizedLine(cue: cue,
+                                                  model: model,
+                                                  notes: model.notesByCue[cue.id] ?? [])
                                 }
                                 if let translation = model.translations[index] {
                                     TranslationBlock(text: translation)
@@ -220,23 +211,18 @@ struct LibraryView: View {
 
     private var searchResults: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 4) {
+            LazyVStack(alignment: .leading, spacing: 10) {
                 Text("\(model.hits.count) matches for “\(model.searchText)”")
                     .font(.caption).foregroundStyle(.secondary)
-                    .padding(.bottom, 4)
                 ForEach(model.hits) { hit in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(hit.sessionTitle).font(.caption2).foregroundStyle(.tertiary)
-                        CueRow(cue: hit.cue, notes: [], isSelected: model.selectedCueID == hit.cue.id)
-                            .onTapGesture {
-                                model.selectedCueID = hit.cue.id
-                                Task { await model.select(hit.sessionID) }
-                            }
+                        TokenizedLine(cue: hit.cue, model: model, notes: [])
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Metrics.panePadding)
+            .padding(.vertical, Metrics.panePadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -247,14 +233,15 @@ struct LibraryView: View {
                 placeholder("Nothing here yet", empty)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
+                    LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(notes) { entry in
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: symbol(for: entry.note.kind))
                                     .foregroundStyle(.secondary).frame(width: 16)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(entry.note.text).font(.body)
-                                    Text(entry.sessionTitle).font(.caption2).foregroundStyle(.tertiary)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    MarkdownText(entry.note.text)
+                                    Text(entry.sessionTitle)
+                                        .font(.caption2).foregroundStyle(.tertiary)
                                 }
                                 Spacer(minLength: 0)
                                 Button {
@@ -262,16 +249,14 @@ struct LibraryView: View {
                                 } label: {
                                     Image(systemName: "trash").font(.caption)
                                 }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(.secondary)
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
                             }
                             .padding(.vertical, 4)
                             Divider()
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Metrics.panePadding)
+                    .padding(.vertical, Metrics.panePadding)
                 }
             }
         }
@@ -281,26 +266,27 @@ struct LibraryView: View {
         Group {
             if model.vocabulary.isEmpty {
                 placeholder("No vocabulary yet",
-                            "Select a line, then click a word in the inspector to look it up and save it.")
+                            "Double-click any word in the transcript, then save it from its card.")
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(model.vocabulary) { entry in
                             HStack {
                                 Text(entry.term).font(.body)
+                                if let gloss = model.glosses[entry.term] {
+                                    Text(gloss).font(.caption).foregroundStyle(.secondary)
+                                }
                                 Spacer()
                                 if entry.count > 1 {
                                     Text("×\(entry.count)").font(.caption).foregroundStyle(.secondary)
                                 }
-                                Button("Look up") { Task { await model.inspect(entry.term) } }
-                                    .buttonStyle(.borderless).font(.caption)
                             }
                             .padding(.vertical, 6)
                             Divider()
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, Metrics.panePadding)
+                    .padding(.vertical, Metrics.panePadding)
                 }
             }
         }
@@ -319,7 +305,7 @@ struct LibraryView: View {
                 Text("Word frequency, coverage and sentence statistics arrive with the analysis pass.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            .padding(16)
+            .padding(Metrics.panePadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -330,134 +316,33 @@ struct LibraryView: View {
             Spacer()
             Text(value).monospacedDigit()
         }
-        .font(.body)
     }
 
     private func placeholder(_ title: String, _ detail: String) -> some View {
         VStack(spacing: 6) {
             Text(title).font(.headline).foregroundStyle(.secondary)
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 380)
+            Text(detail).font(.callout).foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center).frame(maxWidth: 380)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
     }
 
-    // MARK: - Inspector
-
-    private var inspector: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let cue = model.selectedCue {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(cue.timestamp)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Text(cue.text).font(.callout).lineLimit(2)
-                }
-
-                // 划词: every word in the line is a target.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 5) {
-                        ForEach(Array(model.selectedWords.enumerated()), id: \.offset) { _, word in
-                            Button(word) { Task { await model.inspect(word) } }
-                                .buttonStyle(.plain)
-                                .font(.callout)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(model.inspectedWord == word
-                                            ? AnyShapeStyle(Color.accentColor.opacity(0.25))
-                                            : AnyShapeStyle(.quaternary),
-                                            in: Capsule())
-                        }
-                    }
-                }
-
-                if let definition = model.definition {
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(definition)
-                                .font(.caption)
-                                .lineLimit(6)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Button("Add “\(model.inspectedWord ?? "")” to vocabulary") {
-                                Task { await model.saveInspectedWord() }
-                            }
-                            .font(.caption)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Divider()
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Other lines (\(model.occurrences.count))")
-                                .font(.caption).foregroundStyle(.secondary)
-                            ForEach(model.occurrences.prefix(4)) { hit in
-                                Text("• \(hit.cue.text)")
-                                    .font(.caption2)
-                                    .lineLimit(2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if model.occurrences.isEmpty {
-                                Text("No other lines contain it.")
-                                    .font(.caption2).foregroundStyle(.tertiary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else if model.inspectedWord != nil {
-                    Text("No dictionary entry for “\(model.inspectedWord ?? "")”.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 8) {
-                    Picker("", selection: $noteKind) {
-                        Text("Word").tag(Note.Kind.word)
-                        Text("Phrase").tag(Note.Kind.phrase)
-                        Text("Favourite").tag(Note.Kind.favourite)
-                        Text("Note").tag(Note.Kind.note)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(maxWidth: 300)
-
-                    TextField("What do you want to remember?", text: $noteText)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(saveNote)
-                    Button("Save", action: saveNote)
-                        .disabled(noteText.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            } else {
-                Text("Select a line to look up its words, see every other line they appear in, and save a note.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-
-            if !model.notes.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(model.notes) { note in
-                            NoteChip(note: note) { Task { await model.deleteNote(note.id) } }
-                        }
-                    }
-                }
+    /// One quiet line of help, where the old inspector's bulk used to be.
+    private var statusBar: some View {
+        HStack(spacing: 10) {
+            Text("Double-click a word for its meaning · right-click for more")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+            if case .failed(let why) = model.translationPhase {
+                Label(why, systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(1)
+            } else if model.translationPhase != .off {
+                Text(model.translationPhase.label).font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(Metrics.panePadding)
-        .frame(minHeight: 108)
-        .glassPanel(cornerRadius: Metrics.cardRadius)
-        .padding(.horizontal, 14)
-        .padding(.bottom, 14)
-        .padding(.top, 8)
-    }
-
-    private func saveNote() {
-        let text = noteText
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        noteText = ""
-        Task { await model.addNote(cueID: model.selectedCueID, kind: noteKind, text: text) }
+        .padding(.horizontal, Metrics.panePadding)
+        .padding(.vertical, 7)
     }
 
     private func symbol(for kind: Note.Kind) -> String {
@@ -475,8 +360,279 @@ struct LibraryView: View {
     }
 }
 
-/// A paragraph's Chinese, set apart from the transcript so the eye can tell them apart
-/// without a second column.
+// MARK: - One line, as words
+
+/// A cue rendered as individually addressable words, so a lookup happens on the word itself.
+private struct TokenizedLine: View {
+    let cue: Cue
+    @ObservedObject var model: LibraryModel
+    let notes: [Note]
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Button {
+                model.selectedCueID = cue.id
+            } label: {
+                Text(cue.timestamp)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(model.selectedCueID == cue.id ? .primary : .secondary)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 62, alignment: .leading)
+            .contextMenu { lineMenu }
+
+            VStack(alignment: .leading, spacing: 4) {
+                FlowLayout(spacing: 5, lineSpacing: 5) {
+                    ForEach(Array(DictionaryLookup.words(in: cue.text).enumerated()), id: \.offset) { _, word in
+                        WordToken(word: word, cue: cue, model: model)
+                    }
+                }
+                if !notes.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(notes) { note in
+                            Label(note.text, systemImage: "note.text")
+                                .font(.caption2)
+                                .lineLimit(1)
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(model.selectedCueID == cue.id ? Color.accentColor.opacity(0.10) : .clear,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { model.selectedCueID = cue.id }
+        .contextMenu { lineMenu }
+    }
+
+    @ViewBuilder
+    private var lineMenu: some View {
+        Button("Write a Note…") { model.beginNote(cue: cue) }
+        Button("Mark as Favourite") { model.beginNote(cue: cue, kind: .favourite) }
+        Button("Translate This Line") { model.toggleTranslationOn() }
+        Divider()
+        Button("Copy Line") { copy(cue.text) }
+        Button("Copy with Timestamp") { copy("\(cue.timestamp)  \(cue.text)") }
+        Divider()
+        Button("Search for This Line") { model.searchText = cue.text }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+/// One word. Double-click is the whole interaction; the card appears on the word itself.
+private struct WordToken: View {
+    let word: String
+    let cue: Cue
+    @ObservedObject var model: LibraryModel
+
+    private var isInspected: Bool {
+        model.inspection?.word == word && model.inspection?.cueID == cue.id
+    }
+
+    var body: some View {
+        Text(word)
+            .font(.system(size: 14))
+            .lineSpacing(Metrics.lineSpacing)
+            .padding(.horizontal, 2)
+            .padding(.vertical, 1)
+            .background(isInspected ? Color.accentColor.opacity(0.20) : .clear,
+                        in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                model.selectedCueID = cue.id
+                Task { await model.inspect(word, in: cue) }
+            }
+            .onTapGesture {
+                model.selectedCueID = cue.id
+                if isInspected { model.clearInspection() }
+            }
+            .popover(isPresented: inspectionBinding, arrowEdge: .bottom) {
+                WordCard(model: model)
+            }
+            .contextMenu {
+                Button("Translate “\(word)”") {
+                    Task { await model.inspect(word, in: cue) }
+                }
+                Button("Add to Vocabulary") {
+                    Task {
+                        await model.inspect(word, in: cue)
+                        await model.saveInspectedWord()
+                    }
+                }
+                Divider()
+                Button("Copy Word") { copy(word) }
+                Button("Copy Line") { copy(cue.text) }
+                Divider()
+                Button("Write a Note…") { model.beginNote(cue: cue) }
+            }
+            .help("Double-click for the meaning of “\(word)”")
+    }
+
+    private var inspectionBinding: Binding<Bool> {
+        Binding(get: { isInspected },
+                set: { if !$0 { model.clearInspection() } })
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - The word card
+
+private struct WordCard: View {
+    @ObservedObject var model: LibraryModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let inspection = model.inspection {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(inspection.lemma)
+                        .font(.system(size: 16, weight: .semibold))
+                    if let gloss = inspection.translation ?? model.glosses[inspection.lemma] {
+                        Text(gloss).font(.system(size: 15)).foregroundStyle(.secondary)
+                    } else if model.translationPhase == .glossing || model.translationPhase == .working {
+                        ProgressView().controlSize(.small)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let definition = inspection.definition {
+                    Text(definition)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(5)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("No dictionary entry on this Mac.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+
+                if !model.occurrences.isEmpty {
+                    Divider()
+                    Text("Other lines (\(model.occurrences.count))")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(model.occurrences.prefix(3)) { hit in
+                        Button {
+                            Task { await model.select(hit.sessionID) }
+                            model.selectedCueID = hit.cue.id
+                        } label: {
+                            Text("• \(hit.cue.text)")
+                                .font(.caption2)
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                Divider()
+                HStack(spacing: 8) {
+                    Button("Add to Vocabulary") { Task { await model.saveInspectedWord() } }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    Button("Note…") { model.beginNote(cue: nil) }
+                        .controlSize(.small)
+                    Spacer()
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 320)
+    }
+}
+
+// MARK: - Notes
+
+/// Markdown, with the link back to the sentence already in place.
+private struct NoteEditor: View {
+    @ObservedObject var model: LibraryModel
+    @State var draft: NoteDraft
+
+    private var words: [String] {
+        guard let cueID = draft.cueID,
+              let cue = model.readerCues.first(where: { $0.id == cueID }) else { return [] }
+        var seen = Set<String>()
+        return DictionaryLookup.words(in: cue.text).filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Picker("", selection: $draft.kind) {
+                    Text("Note").tag(Note.Kind.note)
+                    Text("Word").tag(Note.Kind.word)
+                    Text("Phrase").tag(Note.Kind.phrase)
+                    Text("Favourite").tag(Note.Kind.favourite)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 320)
+                Spacer()
+                if let cueID = draft.cueID,
+                   let cue = model.readerCues.first(where: { $0.id == cueID }) {
+                    Text("Linked to \(cue.timestamp)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            TextEditor(text: $draft.text)
+                .font(.system(size: 13.5))
+                .frame(minHeight: 170)
+                .padding(8)
+                .glassPanel(cornerRadius: Metrics.controlRadius)
+
+            if !words.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Insert a word").font(.caption).foregroundStyle(.secondary)
+                    FlowLayout(spacing: 5, lineSpacing: 5) {
+                        ForEach(words, id: \.self) { word in
+                            Button(word) { insert(word) }
+                                .buttonStyle(.plain)
+                                .font(.caption)
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(.quaternary, in: Capsule())
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Text("Markdown: **bold** *italic* `code` — the quote above links this to its line.")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+                Button("Cancel") { model.cancelNoteDraft() }
+                Button("Save") {
+                    model.noteDraft = draft
+                    Task { await model.saveNoteDraft() }
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+            }
+        }
+        .padding(18)
+        .frame(width: 560)
+    }
+
+    private func insert(_ word: String) {
+        let needsSpace = !draft.text.isEmpty && !draft.text.hasSuffix(" ") && !draft.text.hasSuffix("\n")
+        draft.text += (needsSpace ? " " : "") + "**\(word)** "
+    }
+}
+
+// MARK: - Pieces
+
 private struct TranslationBlock: View {
     let text: String
 
@@ -493,8 +649,24 @@ private struct TranslationBlock: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
         .padding(.leading, 72)
+    }
+}
+
+/// Notes are written in Markdown; this is what they look like when read back.
+private struct MarkdownText: View {
+    let source: String
+
+    init(_ source: String) { self.source = source }
+
+    var body: some View {
+        if let attributed = try? AttributedString(
+            markdown: source,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
+            Text(attributed)
+        } else {
+            Text(source)
+        }
     }
 }
 
@@ -511,61 +683,47 @@ private struct ParagraphTranslationHost: ViewModifier {
                     target: Locale.Language(identifier: "zh-Hans"))
             }
             .translationTask(configuration) { session in
-                await model.runTranslation(paragraphs: model.paragraphs, using: session)
+                // Paragraphs when the toggle is on, plus any word looked up on its own.
+                await model.runTranslation(paragraphs: model.translationOn ? model.paragraphs : [],
+                                           using: session)
             }
     }
 }
 
-private struct CueRow: View {
-    let cue: Cue
-    let notes: [Note]
-    let isSelected: Bool
+/// A wrapping row layout: words flow and break like text, but stay separate views.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 5
+    var lineSpacing: CGFloat = 5
 
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(cue.timestamp)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 62, alignment: .leading)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(cue.text)
-                    .font(.system(size: 14))
-                    .lineSpacing(Metrics.lineSpacing)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !notes.isEmpty {
-                    HStack(spacing: 4) {
-                        ForEach(notes) { note in
-                            Text(note.text)
-                                .font(.caption2)
-                                .padding(.horizontal, 6).padding(.vertical, 1)
-                                .background(Color.accentColor.opacity(0.18), in: Capsule())
-                        }
-                    }
-                }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + lineSpacing
+                rowHeight = 0
             }
-            Spacer(minLength: 0)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(isSelected ? Color.accentColor.opacity(0.12) : .clear,
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .contentShape(Rectangle())
+        return CGSize(width: maxWidth.isFinite ? maxWidth : x, height: y + rowHeight)
     }
-}
 
-private struct NoteChip: View {
-    let note: Note
-    let onDelete: () -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(note.text).font(.caption).lineLimit(1)
-            Button(action: onDelete) { Image(systemName: "xmark").font(.caption2) }
-                .buttonStyle(.plain)
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(.quaternary, in: Capsule())
     }
 }
 
