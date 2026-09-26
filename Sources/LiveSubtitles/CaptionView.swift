@@ -2,9 +2,13 @@
 //  CaptionView.swift
 //  LiveSubtitles
 //
-//  Two-line rolling caption. `truncationMode(.head)` keeps the newest words on
-//  screen and lets old text slide off the top, which is what makes it read like
-//  YouTube's captions instead of a string that snaps to a new value.
+//  The finished sentences and the sentence still being spoken are rendered as
+//  *separate* lines. That is what makes the caption behave like YouTube's: the
+//  in-progress sentence can never run on from the end of the previous one, it
+//  always starts on a fresh line and pushes the older lines up.
+//
+//  Older lines scroll off because `truncationMode(.head)` drops from the top once
+//  the line budget is used up.
 //
 
 import SwiftUI
@@ -16,6 +20,12 @@ struct CaptionView: View {
 
     private var hasContent: Bool {
         model.hasText || !model.status.isEmpty
+    }
+
+    /// While a sentence is in progress it gets a line of its own, so the finished
+    /// sentences are limited to the remaining lines.
+    private var committedLineLimit: Int {
+        model.live.isEmpty ? settings.lineLimit : max(1, settings.lineLimit - 1)
     }
 
     var body: some View {
@@ -34,13 +44,26 @@ struct CaptionView: View {
     @ViewBuilder
     private var content: some View {
         if model.hasText {
-            Text(model.captionText)
-                .font(.system(size: settings.fontSize, weight: .semibold))
-                .multilineTextAlignment(.center)
-                .lineLimit(settings.lineLimit)
-                .truncationMode(.head)
-                .shadow(color: .black.opacity(0.9), radius: 3, x: 0, y: 1)
-                .animation(.easeOut(duration: 0.12), value: model.live)
+            VStack(spacing: 3) {
+                if !model.committed.isEmpty {
+                    Text(model.committed)
+                        .foregroundStyle(.white)
+                        .lineLimit(committedLineLimit)
+                        .truncationMode(.head)
+                }
+
+                if !model.live.isEmpty {
+                    Text(model.live)
+                        // Dimmer, so the viewer can tell the tail is still being revised.
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+            }
+            .font(.system(size: settings.fontSize, weight: .semibold))
+            .multilineTextAlignment(.center)
+            .shadow(color: .black.opacity(0.9), radius: 3, x: 0, y: 1)
+            .animation(.easeOut(duration: 0.12), value: model.live)
         } else if !model.status.isEmpty {
             Text(model.status)
                 .font(.system(size: 14, weight: .medium))

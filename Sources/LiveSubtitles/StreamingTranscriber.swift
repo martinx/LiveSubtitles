@@ -51,6 +51,11 @@ struct CaptionUpdate {
         case partial
         /// A finished cue, safe to export.
         case utterance
+        /// The audio itself has been quiet long enough that the next words should
+        /// start a new line. Detected from the audio, not from the model's output:
+        /// the model keeps emitting hallucinated words through silence, so "no new
+        /// text" is not a usable pause signal.
+        case pause
     }
 
     let kind: Kind
@@ -91,15 +96,28 @@ final class StreamingTranscriber {
     /// Never let a cue grow past this, even through wall-to-wall dialogue.
     private static let maximumCueWords = 22
 
+    /// Set LIVESUBTITLES_DEBUG=1 to trace latency, cues and pause detection.
+    private static let debugLogging = ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil
+
+    /// How fast the adaptive peak decays per 20 ms buffer (~1 dB per second).
+    private static let peakDecay: Float = 0.998
+    /// Audio this far below the recent peak counts as quiet.
+    private static let quietRatio: Float = 0.3
+    /// ...but never treat near-silence in a very quiet mix as speech.
+    private static let absoluteFloor: Float = 0.0015
+
     private let manager: StreamingEouAsrManager
+    private let pauseMs: Int
     private var pump: Task<Void, Never>?
 
     /// - Parameters:
     ///   - chunk: `.ms160` = minimum latency, `.ms320` / `.ms1280` = more accurate.
     ///   - eouDebounceMs: how much silence the model wants before it calls an utterance done.
-    init(chunk: CaptionChunk = .ms160, eouDebounceMs: Int = 600) {
+    ///   - pauseMs: how much quiet audio ends the current line. 0 disables it.
+    init(chunk: CaptionChunk = .ms160, eouDebounceMs: Int = 600, pauseMs: Int = 3000) {
         manager = StreamingEouAsrManager(chunkSize: chunk.fluidChunkSize,
                                          eouDebounceMs: eouDebounceMs)
+        self.pauseMs = pauseMs
     }
 
     /// Loads the model (downloading it on first use), then consumes `audio` forever,
@@ -119,6 +137,7 @@ final class StreamingTranscriber {
         // One ordered consumer, detached from the main actor so caption rendering can
         // never throttle audio intake.
         let manager = self.manager
+        let pauseMs = self.pauseMs
         pump = Task.detached {
             var transcript = ""
             var consumed = 0          // characters already turned into cues
@@ -126,6 +145,12 @@ final class StreamingTranscriber {
             var tokenCursor = 0       // index of the first token of the current cue
             var msSinceNewWords = 0
             var lastLive = ""
+            // Pause detection runs on the audio, independently of what the model
+            // decides to emit. `peakLevel` follows the loudest audio of the last few
+            // seconds so the threshold adapts to the show's own volume.
+            var peakLevel: Float = 0
+            var quietMs = 0
+            var pauseAnnounced = false
 
             do {
                 for await buffer in audio {
@@ -134,6 +159,28 @@ final class StreamingTranscriber {
 
                     let frames = Int(buffer.frameLength)
                     samplesFed += frames
+
+                    let energy = Self.rms(buffer)
+                    peakLevel = max(energy, peakLevel * Self.peakDecay)
+                    let isQuiet = energy < max(Self.absoluteFloor, peakLevel * Self.quietRatio)
+                    if isQuiet {
+                        quietMs += frames / 16
+                    } else {
+                        quietMs = 0
+                        if pauseAnnounced, Self.debugLogging {
+                            print("[pause] speech resumed (level \(Self.db(energy)) dB)")
+                        }
+                        pauseAnnounced = false
+                    }
+
+                    if pauseMs > 0, !pauseAnnounced, quietMs >= pauseMs {
+                        pauseAnnounced = true
+                        if Self.debugLogging {
+                            print("[pause] \(pauseMs)ms of quiet (level \(Self.db(energy)) dB, "
+                                  + "peak \(Self.db(peakLevel)) dB) -> new line next")
+                        }
+                        continuation.yield(CaptionUpdate(kind: .pause, text: ""))
+                    }
 
                     // The model only reports when it decoded something, so "no news"
                     // counts as a pause. All O(1) work, no audio analysis.
@@ -198,5 +245,24 @@ final class StreamingTranscriber {
         pump?.cancel()
         pump = nil
         await manager.cleanup()
+    }
+
+    private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
+        guard let channels = buffer.floatChannelData else { return 0 }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return 0 }
+
+        let samples = channels[0]
+        var sum: Float = 0
+        for index in 0..<count {
+            let value = samples[index]
+            sum += value * value
+        }
+        return (sum / Float(count)).squareRoot()
+    }
+
+    private static func db(_ level: Float) -> String {
+        guard level > 0 else { return "-inf" }
+        return String(format: "%.1f", 20 * log10(level))
     }
 }

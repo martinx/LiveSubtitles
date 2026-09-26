@@ -86,8 +86,11 @@ final class CaptionController {
         captions.clear()
 
         let chunk = CaptionChunk(rawValue: settings.chunkSizeMs) ?? .ms160
-        let transcriber = StreamingTranscriber(chunk: chunk,
-                                               eouDebounceMs: settings.eouDebounceMs)
+        let transcriber = StreamingTranscriber(
+            chunk: chunk,
+            eouDebounceMs: settings.eouDebounceMs,
+            pauseMs: Int(settings.newLineAfterSilence * 1000)
+        )
         self.transcriber = transcriber
 
         let capture = SystemAudioCapture()
@@ -108,6 +111,10 @@ final class CaptionController {
                     switch update.kind {
                     case .partial:
                         self.captions.applyPartial(update.text)
+
+                    case .pause:
+                        // Quiet audio: the next sentence starts a new line.
+                        self.captions.markPause()
 
                     case .utterance:
                         let line = Self.readable(update.text)

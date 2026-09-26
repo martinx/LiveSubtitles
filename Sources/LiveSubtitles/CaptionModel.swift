@@ -80,17 +80,14 @@ final class CaptionModel: ObservableObject {
         silenceTask?.cancel()
     }
 
-    var captionText: AttributedString {
-        var result = AttributedString(committed)
-        result.foregroundColor = .white
-
-        guard !live.isEmpty else { return result }
-
-        var provisional = AttributedString((committed.isEmpty ? "" : " ") + live)
-        // Dimmer so the viewer can tell the tail is still being revised.
-        provisional.foregroundColor = NSColor.white.withAlphaComponent(0.75)
-        result.append(provisional)
-        return result
+    /// The audio itself has been quiet long enough. The line on screen stays put -
+    /// the break is applied when the next words arrive, so the last line does not
+    /// blank out during the pause. Driven by audio level rather than by the model
+    /// going silent, because the model keeps emitting hallucinated words through
+    /// silence and would reset a text-based timer forever.
+    func markPause() {
+        lineBreakPending = true
+        if Self.debugLogging { print("[newline] armed (quiet audio)") }
     }
 
     /// A long pause marks the end of the current line: whatever is on screen stays
@@ -98,6 +95,7 @@ final class CaptionModel: ObservableObject {
     private func beginLineIfNeeded() {
         guard lineBreakPending else { return }
         lineBreakPending = false
+        if Self.debugLogging { print("[newline] previous line dropped") }
         committed = ""
         live = ""
     }
