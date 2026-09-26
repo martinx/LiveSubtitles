@@ -106,26 +106,45 @@ struct LibraryView: View {
                         return true
                     }
 
-                OutlineGroup(model.folderTree, children: \.subfolders) { node in
-                    Label {
-                        Text(node.folder.name).font(.system(size: 13))
-                    } icon: {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(.tint)
-                            .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+                ForEach(model.visibleFolderRows) { row in
+                    HStack(spacing: 6) {
+                        Label {
+                            Text(row.folder.name).font(.system(size: 13))
+                        } icon: {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(.tint)
+                                .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
+                        }
+                        Spacer(minLength: 0)
+                        // The triangle goes on the trailing edge, next to the count, so the
+                        // leading edge is free for the folder icon.
+                        if row.hasChildren {
+                            Button {
+                                model.toggleFolderExpansion(row.folder.id)
+                            } label: {
+                                Image(systemName: model.expandedFolders.contains(row.folder.id)
+                                      ? "chevron.down" : "chevron.right")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16, height: 16)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .badge(node.totalSessions)
-                    .tag(LibraryTarget.folder(node.folder.id))
-                    .contextMenu { folderMenu(node.folder) }
-                    // A top-level folder is a peer of All Sessions and belongs on the same x.
-                    // The outline indents its first level too, so pull that one level back.
-                    .listRowInsets(EdgeInsets(top: 2, leading: -14, bottom: 2, trailing: 8))
-                    // Dragging a folder onto another nests it; dragging a session files it.
-                    // The moveFolder guard refuses to put a folder inside its own descendant.
-                    .draggable(DragToken.folder(node.folder.id))
+                    // The same row insets and padding every other sidebar row gets, so a
+                    // top-level folder sits on exactly the same x as All Sessions; the depth
+                    // indent is added on top of that, not instead of it.
+                    .padding(.vertical, Metrics.sidebarRowVertical)
+                    .padding(.leading, Metrics.sidebarRowHorizontal + CGFloat(row.depth) * 16)
+                    .padding(.trailing, Metrics.sidebarRowHorizontal)
+                    .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
+                    .tag(LibraryTarget.folder(row.folder.id))
+                    .contextMenu { folderMenu(row.folder) }
+                    .draggable(DragToken.folder(row.folder.id))
                     .dropDestination(for: String.self) { tokens, _ in
-                        Task { await model.handleDrop(tokens, onto: node.folder.id) }
+                        Task { await model.handleDrop(tokens, onto: row.folder.id) }
                         return true
                     }
                 }

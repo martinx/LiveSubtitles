@@ -503,6 +503,42 @@ final class LibraryModel: ObservableObject {
         await refresh()
     }
 
+    /// Which folders are open. The tree is flattened for the sidebar rather than handed to
+    /// `OutlineGroup`, because the outline indents its first level and puts the disclosure
+    /// triangle on the leading edge — where the folder icon belongs. Flattening keeps the
+    /// first level flush with All Sessions and lets the triangle sit on the trailing side,
+    /// the way the Finder sidebar does it.
+    @Published var expandedFolders = Set<String>()
+
+    /// One row of the sidebar's folder tree.
+    struct FolderRow: Identifiable {
+        let folder: Folder
+        let depth: Int
+        let hasChildren: Bool
+        var id: String { folder.id }
+    }
+
+    var visibleFolderRows: [FolderRow] {
+        var rows: [FolderRow] = []
+        func walk(_ nodes: [FolderNode], _ depth: Int) {
+            for node in nodes {
+                rows.append(FolderRow(folder: node.folder,
+                                      depth: depth,
+                                      hasChildren: !node.children.isEmpty))
+                if expandedFolders.contains(node.folder.id) {
+                    walk(node.children, depth + 1)
+                }
+            }
+        }
+        walk(folderTree, 0)
+        return rows
+    }
+
+    func toggleFolderExpansion(_ id: String) {
+        if expandedFolders.contains(id) { expandedFolders.remove(id) }
+        else { expandedFolders.insert(id) }
+    }
+
     /// Handles something dropped on a folder — or on All Sessions, which means the root.
     /// The token says what was dragged, since a folder and a session are both strings.
     @discardableResult
