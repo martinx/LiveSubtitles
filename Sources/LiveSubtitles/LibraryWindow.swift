@@ -14,6 +14,7 @@
 import AppKit
 import LiveSubtitlesKit
 import SwiftUI
+import Translation
 
 @MainActor
 struct LibraryView: View {
@@ -26,7 +27,8 @@ struct LibraryView: View {
     @State private var confirmDelete: Session?
 
     var body: some View {
-        NavigationSplitView {
+        translationHost(
+            NavigationSplitView {
             List(selection: $model.section) {
                 ForEach(LibrarySection.allCases) { section in
                     Label {
@@ -42,15 +44,16 @@ struct LibraryView: View {
             }
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 210, ideal: 232, max: 280)
-        } detail: {
-            VStack(spacing: 0) {
-                toolbar
-                Divider()
-                pane
-                Divider()
-                inspector
+            } detail: {
+                VStack(spacing: 0) {
+                    toolbar
+                    Divider()
+                    pane
+                    Divider()
+                    inspector
+                }
             }
-        }
+        )
         .frame(minWidth: 900, minHeight: 560)
         .alert("Rename session", isPresented: Binding(get: { renaming != nil },
                                                       set: { if !$0 { renaming = nil } })) {
@@ -72,6 +75,16 @@ struct LibraryView: View {
             }
         } message: {
             Text("Its transcript and notes are removed. This cannot be undone.")
+        }
+    }
+
+    /// `.translationTask` only exists from macOS 15, so the window carries it only there.
+    @ViewBuilder
+    private func translationHost<V: View>(_ content: V) -> some View {
+        if #available(macOS 15.0, *) {
+            content.modifier(ParagraphTranslationHost(model: model))
+        } else {
+            content
         }
     }
 
@@ -106,6 +119,11 @@ struct LibraryView: View {
             // Replay, speech, speed and summarising are shown rather than hidden so the
             // intent stays visible; each says what it is waiting for.
             GlassControlGroup {
+                ToolbarIconButton(symbol: "translate",
+                                  help: model.translationPhase.label,
+                                  enabled: !model.isSearching) {
+                    model.toggleTranslation()
+                }
                 ToolbarIconButton(symbol: "play.circle", help: playHelp, enabled: false)
                 ToolbarIconButton(symbol: "waveform", help: "Speak this line — needs the voice model (phase 4)", enabled: false)
                 ToolbarIconButton(symbol: "gauge.with.needle", help: "Playback speed — needs audio retention (phase 1)", enabled: false)
@@ -185,6 +203,9 @@ struct LibraryView: View {
                                            notes: model.notesByCue[cue.id] ?? [],
                                            isSelected: model.selectedCueID == cue.id)
                                         .onTapGesture { model.selectedCueID = cue.id }
+                                }
+                                if let translation = model.translations[index] {
+                                    TranslationBlock(text: translation)
                                 }
                             }
                         }
@@ -451,6 +472,47 @@ struct LibraryView: View {
     private func formatted(_ seconds: TimeInterval) -> String {
         let minutes = Int(seconds) / 60
         return minutes < 60 ? "\(minutes) min" : "\(minutes / 60) h \(minutes % 60) min"
+    }
+}
+
+/// A paragraph's Chinese, set apart from the transcript so the eye can tell them apart
+/// without a second column.
+private struct TranslationBlock: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(Color.accentColor.opacity(0.45))
+                .frame(width: 3)
+            Text(text)
+                .font(.system(size: 14))
+                .lineSpacing(Metrics.lineSpacing)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .padding(.leading, 72)
+    }
+}
+
+@available(macOS 15.0, *)
+private struct ParagraphTranslationHost: ViewModifier {
+    @ObservedObject var model: LibraryModel
+    @State private var configuration: TranslationSession.Configuration?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: model.translationRequestID) { _, _ in
+                configuration = TranslationSession.Configuration(
+                    source: Locale.Language(identifier: "en"),
+                    target: Locale.Language(identifier: "zh-Hans"))
+            }
+            .translationTask(configuration) { session in
+                await model.runTranslation(paragraphs: model.paragraphs, using: session)
+            }
     }
 }
 

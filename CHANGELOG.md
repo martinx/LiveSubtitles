@@ -8,6 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Paragraph translation** into Simplified Chinese, on demand from the Library toolbar.
+  Uses the system Translation framework, so it runs on-device and offline once the language
+  pairs are downloaded; the first run asks macOS to fetch them, and the toolbar says so.
+  Translated paragraphs appear as blocks under the transcript, not in a second column.
+- **Word lookup** in the Library inspector: tap a line, tap any word, and get the system
+  dictionary's entry — pronunciation, part of speech, senses — plus every other line that
+  word appears in, and a button to save it into the vocabulary.
+- **The Library window** in the macOS 26/27 design language: Liquid Glass where the system
+  provides it, materials below that, and a sectioned status menu to match.
+
 - **The Library window** (menu bar → Library…, ⇧⌘L): every session is now kept, with its
   transcript, and can be browsed, searched across, renamed, exported and annotated.
 - **Persistent history** in `~/Library/Application Support/Live Subtitles/history.sqlite` —

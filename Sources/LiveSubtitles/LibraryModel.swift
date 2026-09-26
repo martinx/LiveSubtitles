@@ -10,6 +10,7 @@ import AppKit
 import Combine
 import LiveSubtitlesKit
 import SwiftUI
+import Translation
 
 /// The sidebar's destinations, in the order the design put them.
 enum LibrarySection: String, CaseIterable, Identifiable {
@@ -42,6 +43,27 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the translate button is doing, in a form the toolbar can show.
+enum TranslationPhase: Equatable {
+    case off
+    case waiting        // the task has been asked to run
+    case downloading    // the language pack is not on this Mac yet
+    case working        // translating
+    case done
+    case failed(String)
+
+    var label: String {
+        switch self {
+        case .off:             return "Translate into Chinese"
+        case .waiting:         return "Preparing…"
+        case .downloading:     return "Downloading Chinese (one time, macOS will ask)"
+        case .working:         return "Translating…"
+        case .done:            return "Translated"
+        case .failed(let why): return "Translation failed: \(why)"
+        }
+    }
+}
+
 @MainActor
 final class LibraryModel: ObservableObject {
     @Published private(set) var sessions: [Session] = []
@@ -67,6 +89,12 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var favourites: [NoteWithSession] = []
     @Published private(set) var vocabulary: [VocabularyEntry] = []
     @Published private(set) var statistics = LibraryStatistics()
+
+    // Translation: paragraph by paragraph, on demand, in Simplified Chinese.
+    @Published private(set) var translationPhase: TranslationPhase = .off
+    @Published private(set) var translations: [Int: String] = [:]
+    /// Bumped to ask the view's `translationTask` to run; the session only exists inside it.
+    @Published private(set) var translationRequestID = 0
 
     // Inspector.
     @Published private(set) var inspectedWord: String?
@@ -101,6 +129,60 @@ final class LibraryModel: ObservableObject {
     var selectedWords: [String] {
         guard let cue = selectedCue else { return [] }
         return DictionaryLookup.words(in: cue.text)
+    }
+
+    var translationOn: Bool { translationPhase != .off }
+
+    func toggleTranslation() {
+        if translationOn {
+            translationPhase = .off
+            translations = [:]
+        } else {
+            translationPhase = .waiting
+            translationRequestID += 1
+        }
+    }
+
+    /// Runs inside the SwiftUI `translationTask`, which is the only place a usable session
+    /// exists. Paragraphs are translated as blocks so the Chinese reads as prose rather than
+    /// line fragments, and results are keyed by paragraph index.
+    @available(macOS 15.0, *)
+    func runTranslation(paragraphs: [[Cue]], using session: TranslationSession) async {
+        guard !paragraphs.isEmpty else {
+            translationPhase = .done
+            return
+        }
+        translationPhase = .working
+        do {
+            // Say plainly when the first run has to fetch the language pairs, because the
+            // system's own sheet is what the user will see and it does not explain itself.
+            let availability = LanguageAvailability()
+            let status = await availability.status(
+                from: Locale.Language(identifier: "en"),
+                to: Locale.Language(identifier: "zh-Hans"))
+            if status == .supported { translationPhase = .downloading }
+
+            try await session.prepareTranslation()
+            translationPhase = .working
+
+            let requests = paragraphs.enumerated().map { index, paragraph in
+                TranslationSession.Request(
+                    sourceText: paragraph.map(\.text).joined(separator: " "),
+                    clientIdentifier: String(index))
+            }
+            let responses = try await session.translations(from: requests)
+
+            // Responses come back in request order, so index them rather than trusting a
+            // client identifier to survive the round trip.
+            var translated: [Int: String] = [:]
+            for (index, response) in responses.enumerated() where index < paragraphs.count {
+                translated[index] = response.targetText
+            }
+            translations = translated
+            translationPhase = .done
+        } catch {
+            translationPhase = .failed(error.localizedDescription)
+        }
     }
 
     var notesByCue: [Int64: [Note]] {
@@ -160,6 +242,8 @@ final class LibraryModel: ObservableObject {
     func loadSelected() async {
         selectedCueID = nil
         clearInspection()
+        translations = [:]
+        if translationOn { translationPhase = .waiting; translationRequestID += 1 }
         guard let id = selectedSessionID else { cues = []; notes = []; return }
         try? await load(id)
     }
