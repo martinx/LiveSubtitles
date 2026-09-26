@@ -171,6 +171,11 @@ final class LibraryModel: ObservableObject {
     /// move is never silent.
     @Published var lastFiled: String?
 
+    /// Bumped by the menu bar, watched by the window: the menu cannot reach into a view's
+    /// state, so it asks instead.
+    @Published private(set) var newFolderRequestID = 0
+    @Published private(set) var searchFocusRequestID = 0
+
     @Published var isPaletteVisible = false
     @Published var paletteSelection = 0
     @Published private(set) var paletteResults = PaletteResults()
@@ -233,6 +238,10 @@ final class LibraryModel: ObservableObject {
     }
 
     // MARK: - Palette
+
+    func requestNewFolder() { newFolderRequestID += 1 }
+
+    func requestSearchFocus() { searchFocusRequestID += 1 }
 
     func showPalette() {
         isPaletteVisible = true

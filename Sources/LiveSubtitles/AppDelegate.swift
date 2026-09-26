@@ -268,6 +268,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// These must be nil-targeted so they travel the responder chain to `NSApplication`.
     /// Pointing them at this delegate is what made Quit grey out: the delegate does not
     /// implement `terminate:`.
+    /// A menu item that shows whether something is on, and flips it.
+    private func checkable(_ title: String, _ selector: Selector, on: Bool) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+        item.target = self
+        item.state = on ? .on : .off
+        return item
+    }
+
     private func appAction(_ title: String,
                            _ selector: Selector,
                            key: String = "",
@@ -320,6 +328,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
+        // A Library menu of its own: these act on the window, and burying them in the app
+        // menu is how a feature becomes invisible.
+        let libraryItem = NSMenuItem()
+        let libraryMenu = NSMenu(title: "Library")
+        libraryMenu.autoenablesItems = false
+        libraryMenu.addItem(action("Open Library…", #selector(openLibrary), key: "l",
+                                   symbol: "books.vertical"))
+        libraryMenu.addItem(.separator())
+        libraryMenu.addItem(action("New Note…", #selector(newNote), key: "n",
+                                   symbol: "square.and.pencil"))
+        libraryMenu.addItem(action("New Folder…", #selector(newFolder), key: "N",
+                                   symbol: "folder.badge.plus"))
+        libraryMenu.addItem(.separator())
+        libraryMenu.addItem(action("Translate This Session", #selector(translateSession), key: "t",
+                                   symbol: "translate"))
+        libraryMenu.addItem(action("Search Everything…", #selector(searchLibrary), key: "f",
+                                   symbol: "magnifyingglass"))
+        libraryMenu.addItem(.separator())
+        libraryMenu.addItem(action("Export as Subtitles…", #selector(exportLibrarySession), key: "e",
+                                   symbol: "square.and.arrow.down"))
+        libraryItem.submenu = libraryMenu
+        mainMenu.addItem(libraryItem)
+
+        // View holds the switches. A menu item with a checkmark is how macOS has always
+        // shown "this is on or off", and it is where people look for it.
+        let viewItem = NSMenuItem()
+        let viewMenu = NSMenu(title: "View")
+        viewMenu.autoenablesItems = false
+        viewMenu.addItem(checkable("Show Dock Icon", #selector(toggleDockIcon),
+                                   on: controller?.settings.showInDock ?? false))
+        viewMenu.addItem(checkable("Keep Captions on Screen", #selector(toggleAlwaysVisible),
+                                   on: controller?.settings.alwaysVisible ?? false))
+        viewMenu.addItem(checkable("Drag to Reposition", #selector(toggleDraggable),
+                                   on: controller?.settings.draggable ?? false))
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(checkable("Check for Updates Automatically", #selector(toggleAutoUpdate),
+                                   on: controller?.settings.checkForUpdates ?? false))
+        viewMenu.addItem(.separator())
+        viewMenu.addItem(action("Reset Overlay Position", #selector(resetOverlayPosition),
+                                symbol: "arrow.uturn.backward"))
+        viewItem.submenu = viewMenu
+        mainMenu.addItem(viewItem)
+
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.autoenablesItems = false
@@ -342,6 +393,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func exportTranscript() { controller?.exportTranscript() }
     @objc private func copyTranscript() { controller?.copyTranscript() }
     @objc private func openSettings() { controller?.openSettings() }
+
+    // MARK: - Library commands
+
+    @objc private func newNote() {
+        libraryModel.attach(controller?.historyStore())
+        libraryWindow.show(model: libraryModel)
+        libraryModel.beginNote(cue: libraryModel.selectedCue)
+    }
+
+    @objc private func newFolder() {
+        libraryWindow.show(model: libraryModel)
+        libraryModel.requestNewFolder()
+    }
+
+    @objc private func translateSession() {
+        libraryWindow.show(model: libraryModel)
+        libraryModel.toggleTranslation()
+    }
+
+    @objc private func searchLibrary() {
+        libraryWindow.show(model: libraryModel)
+        libraryModel.requestSearchFocus()
+    }
+
+    @objc private func exportLibrarySession() {
+        guard let id = libraryModel.selectedSessionID else { return }
+        libraryModel.export(.srt, sessionID: id)
+    }
+
+    // MARK: - View switches
+
+    @objc private func toggleDockIcon() {
+        controller?.settings.showInDock.toggle()
+        controller?.applyActivationPolicy()
+        installMainMenu()
+    }
+
+    @objc private func toggleAlwaysVisible() {
+        controller?.settings.alwaysVisible.toggle()
+        installMainMenu()
+    }
+
+    @objc private func toggleDraggable() {
+        controller?.settings.draggable.toggle()
+        installMainMenu()
+    }
+
+    @objc private func toggleAutoUpdate() {
+        controller?.settings.checkForUpdates.toggle()
+        installMainMenu()
+    }
+
+    @objc private func resetOverlayPosition() {
+        controller?.settings.resetPosition()
+    }
 
     @objc private func openLibrary() {
         libraryModel.attach(controller?.historyStore())

@@ -101,8 +101,9 @@ final class CaptionController {
     // MARK: - Lifecycle
 
     /// Menu-bar only by default; the Dock icon is opt-in so the app can never take
-    /// activation away from whatever is playing.
-    private func applyActivationPolicy() {
+    /// activation away from whatever is playing. Not private: the View menu flips the
+    /// setting and has to re-apply it.
+    func applyActivationPolicy() {
         NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
     }
 

@@ -23,6 +23,7 @@ struct LibraryView: View {
     @State private var renameText = ""
     @State private var confirmDelete: Session?
     @State private var folderPrompt: FolderPrompt?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         translationHost(NavigationSplitView {
@@ -53,6 +54,12 @@ struct LibraryView: View {
             if model.isPaletteVisible {
                 CommandPalette(model: model)
             }
+        }
+        .onChange(of: model.newFolderRequestID) { _, _ in
+            folderPrompt = FolderPrompt(mode: .new(nil))
+        }
+        .onChange(of: model.searchFocusRequestID) { _, _ in
+            searchFocused = true
         }
         .sheet(item: $model.noteDraft) { draft in
             NoteEditor(model: model, draft: draft)
@@ -231,6 +238,15 @@ struct LibraryView: View {
         .listStyle(.inset)
         .scrollContentBackground(.hidden)
         .background(.regularMaterial)
+        .onDeleteCommand {
+            // The Delete key, the way every list on this platform behaves.
+            if !model.sessionSelection.isEmpty {
+                Task { await model.deleteSelectedSessions() }
+            } else if let id = model.selectedSessionID {
+                model.sessionSelection = [id]
+                Task { await model.deleteSelectedSessions() }
+            }
+        }
         .onChange(of: model.sessionSelection) { _, _ in
             Task { await model.syncSelectionToList() }
         }
@@ -342,6 +358,7 @@ struct LibraryView: View {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
                 TextField("Search every session", text: $model.searchText)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
                     .frame(width: 180)
                 if model.isSearching {
                     Button { model.searchText = "" } label: {
