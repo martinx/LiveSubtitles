@@ -14,6 +14,20 @@ All notable changes to this project are documented here. The format follows
   committed line behind the live text.
 - Automatic recovery when the capture stream stops (display change, permission change).
 
+## [0.1.4] - 2026-09-26
+
+### Fixed
+
+- The overlay could take a bogus height measurement and size itself to almost the whole
+  screen, leaving an invisible panel that swallowed clicks. Measurements are now clamped,
+  and the layout constraint that allowed the bad reading is gone.
+
+### Changed
+
+- Local builds prefer a **Developer ID** identity when one is available, so a build made
+  here shares its code identity — and therefore its Screen Recording grant — with the
+  copy people download.
+
 ## [0.1.3] - 2026-09-26
 
 ### Added

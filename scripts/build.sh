@@ -56,8 +56,15 @@ IDENTITY="${CODESIGN_IDENTITY:-}"
 if [ "$IDENTITY" = "adhoc" ]; then
   IDENTITY=""
 elif [ -z "$IDENTITY" ]; then
+  # Prefer Developer ID when it exists: it is the identity releases are signed with, so
+  # local builds then share the same code identity - and therefore the same Screen
+  # Recording grant - as the copy people download. Apple Development is the fallback.
   IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
-    | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')"
+    | awk -F'"' '/Developer ID Application/{print $2; exit}')"
+  if [ -z "$IDENTITY" ]; then
+    IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+      | awk -F'"' '/Apple Development/{print $2; exit}')"
+  fi
 fi
 
 if [ -n "$IDENTITY" ]; then

@@ -76,8 +76,16 @@ final class CaptionPanel: NSPanel {
     /// out so the window keeps hugging it.
     private func barHeightChanged(_ height: CGFloat) {
         guard height > 0 else { return }
-        guard abs((barHeight ?? 0) - height) > 0.5 else { return }
-        barHeight = height
+
+        // A measurement from a half-laid-out view can be wildly wrong, and this value
+        // sizes the window - a bogus one would leave an invisible panel swallowing clicks
+        // across the screen. Nothing taller than the display is ever legitimate.
+        let screenHeight = (NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.main)?
+            .visibleFrame.height ?? 1200
+        let clamped = min(height, screenHeight)
+
+        guard abs((barHeight ?? 0) - clamped) > 0.5 else { return }
+        barHeight = clamped
         applyLayout(settings: settings)
     }
 
