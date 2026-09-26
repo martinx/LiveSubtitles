@@ -8,7 +8,7 @@
 # which also keeps its log output on your terminal.
 #
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 APP="build/LiveSubtitles.app"
 BIN="$APP/Contents/MacOS/LiveSubtitles"

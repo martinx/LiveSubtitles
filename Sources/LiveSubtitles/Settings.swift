@@ -28,6 +28,8 @@ final class Settings: ObservableObject {
         static let startShortcut = "startShortcut"
         static let pauseShortcut = "pauseShortcut"
         static let stopShortcut = "stopShortcut"
+        static let hasSeenWelcome = "hasSeenWelcome"
+        static let checkForUpdates = "checkForUpdates"
         static let hasCustomPosition = "hasCustomPosition"
         static let panelX = "panelX"
         static let panelY = "panelY"
@@ -73,6 +75,16 @@ final class Settings: ObservableObject {
         didSet { defaults.set(stopShortcut?.storage ?? "", forKey: Key.stopShortcut) }
     }
 
+    /// The welcome window is shown once, automatically, then only on request.
+    @Published var hasSeenWelcome: Bool {
+        didSet { defaults.set(hasSeenWelcome, forKey: Key.hasSeenWelcome) }
+    }
+    /// A daily GET of the public GitHub releases API - the app's only network use
+    /// besides the one-time model download.
+    @Published var checkForUpdates: Bool {
+        didSet { defaults.set(checkForUpdates, forKey: Key.checkForUpdates) }
+    }
+
     // MARK: - Overlay position
 
     /// True once the overlay has been dragged somewhere. Published, because it
@@ -109,6 +121,8 @@ final class Settings: ObservableObject {
             Key.startShortcut: KeyShortcut.defaultStart.storage,
             Key.pauseShortcut: KeyShortcut.defaultPause.storage,
             Key.stopShortcut: KeyShortcut.defaultStop.storage,
+            Key.hasSeenWelcome: false,
+            Key.checkForUpdates: true,
             Key.hasCustomPosition: false,
             Key.panelX: 0.0,
             Key.panelY: 0.0,
@@ -136,6 +150,8 @@ final class Settings: ObservableObject {
         startShortcut = Self.loadShortcut(defaults, Key.startShortcut)
         pauseShortcut = Self.loadShortcut(defaults, Key.pauseShortcut)
         stopShortcut = Self.loadShortcut(defaults, Key.stopShortcut)
+        hasSeenWelcome = defaults.bool(forKey: Key.hasSeenWelcome)
+        checkForUpdates = defaults.bool(forKey: Key.checkForUpdates)
         hasCustomPosition = defaults.bool(forKey: Key.hasCustomPosition)
         panelX = defaults.double(forKey: Key.panelX)
         panelY = defaults.double(forKey: Key.panelY)

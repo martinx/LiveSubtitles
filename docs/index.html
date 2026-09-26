@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Subtitles — real-time subtitles for anything on your Mac</title>
+<meta name="description" content="On-device, real-time English subtitles for any audio playing on your Mac. Free, open source, no account, nothing uploaded.">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:title" content="Live Subtitles">
+<meta property="og:description" content="Real-time English subtitles for anything playing on your Mac. On-device, free, open source.">
+<meta property="og:image" content="hero.png">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#0a0f18; --surface:#121a26; --surface-2:#182231; --line:#232f42;
+    --text:#e9eef6; --muted:#93a1b5; --accent:#ff7667; --accent-2:#6c7bff;
+    --radius:16px; --max:1080px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit}
+  .wrap{max-width:var(--max); margin:0 auto; padding:0 24px}
+  img{max-width:100%; height:auto; display:block}
+
+  header{border-bottom:1px solid var(--line); position:sticky; top:0; background:rgba(10,15,24,.86);
+         backdrop-filter:saturate(160%) blur(12px); z-index:10}
+  .nav{display:flex; align-items:center; gap:14px; height:64px}
+  .nav img{width:30px;height:30px;border-radius:8px}
+  .nav b{font-weight:600; letter-spacing:-.01em}
+  .nav .spacer{flex:1}
+  .nav a.ghost{color:var(--muted); text-decoration:none; font-size:15px}
+  .nav a.ghost:hover{color:var(--text)}
+
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; justify-content:center;
+    background:var(--accent); color:#20130f; font-weight:600; text-decoration:none;
+    padding:12px 22px; border-radius:999px; border:0; font-size:16px; white-space:nowrap;
+  }
+  .btn:hover{filter:brightness(1.06)}
+  .btn.small{padding:8px 16px; font-size:14px}
+  .btn.secondary{background:var(--surface-2); color:var(--text); border:1px solid var(--line)}
+
+  .hero{padding:76px 0 56px; text-align:center}
+  .hero h1{font-size:clamp(34px,5.4vw,58px); line-height:1.06; letter-spacing:-.03em; margin:0 0 18px; font-weight:680}
+  .hero h1 em{font-style:normal; color:var(--accent)}
+  .hero p.lead{font-size:clamp(17px,2.1vw,20px); color:var(--muted); max-width:660px; margin:0 auto 30px}
+  .cta{display:flex; gap:12px; justify-content:center; flex-wrap:wrap; align-items:center}
+  .meta{margin-top:18px; color:var(--muted); font-size:14px}
+  .hero .shot{margin-top:52px; border-radius:var(--radius); overflow:hidden; border:1px solid var(--line);
+              box-shadow:0 30px 80px -30px rgba(0,0,0,.9)}
+
+  section{padding:64px 0; border-top:1px solid var(--line)}
+  h2{font-size:clamp(24px,3.2vw,34px); letter-spacing:-.02em; margin:0 0 10px; font-weight:650}
+  .sub{color:var(--muted); margin:0 0 34px; max-width:640px}
+
+  .grid{display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:22px}
+  .card h3{margin:0 0 8px; font-size:16px; font-weight:620}
+  .card p{margin:0; color:var(--muted); font-size:15px}
+  .card .dot{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;margin-bottom:14px;
+             background:var(--surface-2); font-size:15px}
+
+  table{width:100%; border-collapse:collapse; font-size:15px}
+  th,td{text-align:left; padding:11px 12px; border-bottom:1px solid var(--line)}
+  th{color:var(--muted); font-weight:500; font-size:13px; text-transform:uppercase; letter-spacing:.06em}
+  td strong{font-weight:620}
+  .tbl{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
+
+  ol.steps{counter-reset:s; list-style:none; padding:0; margin:0; display:grid; gap:16px}
+  ol.steps li{counter-increment:s; position:relative; padding-left:52px; color:var(--muted)}
+  ol.steps li strong{color:var(--text); display:block; margin-bottom:2px; font-weight:620}
+  ol.steps li::before{
+    content:counter(s); position:absolute; left:0; top:0; width:32px; height:32px; border-radius:50%;
+    background:var(--accent); color:#20130f; font-weight:700; display:grid; place-items:center; font-size:15px;
+  }
+  code,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em}
+  code{background:var(--surface-2); padding:2px 7px; border-radius:6px; border:1px solid var(--line)}
+  kbd{background:var(--surface-2); padding:2px 7px; border-radius:6px; border:1px solid var(--line); color:var(--text)}
+
+  .note{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--accent-2);
+        border-radius:10px; padding:16px 18px; color:var(--muted); font-size:15px}
+  .note strong{color:var(--text)}
+
+  details{border-bottom:1px solid var(--line); padding:16px 0}
+  details summary{cursor:pointer; font-weight:560; list-style:none}
+  details summary::-webkit-details-marker{display:none}
+  details summary::after{content:"+"; float:right; color:var(--muted)}
+  details[open] summary::after{content:"–"}
+  details p{color:var(--muted); margin:10px 0 0}
+
+  footer{padding:44px 0 60px; border-top:1px solid var(--line); color:var(--muted); font-size:14px}
+  footer .row{display:flex; gap:18px; flex-wrap:wrap; align-items:center}
+  footer a{color:var(--muted); text-decoration:none}
+  footer a:hover{color:var(--text)}
+  @media (prefers-reduced-motion:no-preference){ .btn{transition:filter .15s ease} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <img src="favicon.png" alt="">
+    <b>Live Subtitles</b>
+    <span class="spacer"></span>
+    <a class="ghost" href="https://github.com/martinx/LiveSubtitles">GitHub</a>
+    <a class="btn small" href="https://github.com/martinx/LiveSubtitles/releases/latest">Download</a>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <h1>Subtitles for <em>anything</em><br>playing on your Mac.</h1>
+    <p class="lead">Real-time English subtitles over any video, call or file — recognised
+      entirely on this machine, on the Neural Engine. No account, no subscription,
+      no audio ever uploaded.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/martinx/LiveSubtitles/releases/latest">Download for macOS</a>
+      <a class="btn secondary" href="https://github.com/martinx/LiveSubtitles">View source</a>
+    </div>
+    <p class="meta">Free · MIT licensed · macOS 14+ · Apple Silicon · ~9 MB download</p>
+    <div class="shot"><img src="hero.png" width="1920" height="1080"
+      alt="The Live Subtitles overlay showing a sentence over a video"></div>
+  </div>
+
+  <section>
+    <div class="wrap">
+      <h2>Built to be fast enough to follow</h2>
+      <p class="sub">Measured on an M3 by playing a known sentence and timestamping the app's own output.</p>
+      <div class="tbl">
+        <table>
+          <thead><tr><th>Engine</th><th>Params</th><th>First word</th><th>Punctuation</th></tr></thead>
+          <tbody>
+            <tr><td>Parakeet EOU @160 ms</td><td>120M</td><td><strong>0.63 s</strong></td><td>no</td></tr>
+            <tr><td><strong>Parakeet Unified @320 ms</strong> (default)</td><td>0.6B</td><td>0.86 s</td><td>yes</td></tr>
+            <tr><td>Nemotron @560 ms</td><td>0.6B</td><td>1.50 s</td><td>yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sub" style="margin-top:22px">The default costs about 0.2 s more than the fastest tier and buys
+        correct words, real punctuation and capitalisation. Pick the fastest one if you would rather have
+        the lowest possible delay.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>What it does</h2>
+      <p class="sub">A menu-bar app. Nothing else to run, nothing to configure before it works.</p>
+      <div class="grid">
+        <div class="card"><div class="dot">🎧</div><h3>Captures system audio</h3>
+          <p>Not the microphone. Whatever the Mac is playing is what gets transcribed — headphones, speakers, any app.</p></div>
+        <div class="card"><div class="dot">⚡️</div><h3>On the Neural Engine</h3>
+          <p>Streaming recognition runs on Apple silicon's ANE, so the CPU stays free and the fans stay quiet.</p></div>
+        <div class="card"><div class="dot">🖱️</div><h3>Never steals a click</h3>
+          <p>The overlay is click-through and cannot take focus. It sits over full-screen video without interrupting it.</p></div>
+        <div class="card"><div class="dot">⌨️</div><h3>Global shortcuts</h3>
+          <p>Start, pause and stop from any app. Pause keeps the model warm; stop releases the memory.</p></div>
+        <div class="card"><div class="dot">📄</div><h3>Export the transcript</h3>
+          <p>The whole session can be saved as <code>.srt</code> with timings that line up with playback.</p></div>
+        <div class="card"><div class="dot">🔒</div><h3>Nothing leaves the Mac</h3>
+          <p>No account, no analytics, no audio uploaded. The only network use is the one-time model download.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Install</h2>
+      <p class="sub">Download the zip, move the app to Applications, and grant one permission.</p>
+      <ol class="steps">
+        <li><strong>Download and unzip</strong>
+          Grab the latest release and drag <code>Live Subtitles.app</code> into your Applications folder.</li>
+        <li><strong>Allow screen recording</strong>
+          macOS asks on first launch, because that is how system audio is read. Grant it in
+          System&nbsp;Settings → Privacy&nbsp;&amp;&nbsp;Security → Screen&nbsp;Recording.</li>
+        <li><strong>Start watching</strong>
+          Subtitles appear near the bottom of the screen. The first run also downloads and compiles the
+          speech model (40–90 seconds, once).</li>
+      </ol>
+      <p class="note" style="margin-top:26px"><strong>Prefer building it?</strong>
+        <code>git clone</code>, then <code>make install</code>. You need the Xcode command line tools.
+        See the <a href="https://github.com/martinx/LiveSubtitles#build--run">README</a>.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <h2>Questions</h2>
+      <details><summary>Is my audio uploaded anywhere?</summary>
+        <p>No. Recognition runs entirely on your Mac. The app makes exactly one kind of network request:
+          downloading the speech model the first time, and — if you leave the update check on — a
+          once-a-day request to GitHub for the latest version. No audio, and nothing about you, is sent.</p></details>
+      <details><summary>Why is it English only?</summary>
+        <p>The streaming models used here are English. That is the honest current limit, and it is the
+          first thing on the list to change.</p></details>
+      <details><summary>Does it work with Netflix, YouTube, VLC, Zoom?</summary>
+        <p>Yes — anything that plays audio through the system. The app does not touch the player at all,
+          it only listens to the output.</p></details>
+      <details><summary>Why does macOS warn about an unidentified developer?</summary>
+        <p>If a release was built without a notarisation certificate it is unsigned for distribution.
+          Right-click the app and choose Open the first time, or build it yourself from source.</p></details>
+      <details><summary>What does it cost?</summary>
+        <p>Nothing. MIT licensed, no account, no paid tier. If it is useful, a star on
+          <a href="https://github.com/martinx/LiveSubtitles">GitHub</a> helps.</p></details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>© 2026 Martin Xu</span>
+    <a href="https://github.com/martinx/LiveSubtitles">Source</a>
+    <a href="https://github.com/martinx/LiveSubtitles/releases">Releases</a>
+    <a href="https://github.com/martinx/LiveSubtitles/issues">Report an issue</a>
+    <a href="https://github.com/martinx/LiveSubtitles/blob/main/LICENSE">MIT licence</a>
+    <span class="spacer" style="flex:1"></span>
+    <span>Recognition by FluidAudio (Apache 2.0)</span>
+  </div>
+</footer>
+
+</body>
+</html>

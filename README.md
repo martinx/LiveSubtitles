@@ -1,9 +1,32 @@
-# LiveSubtitles
+# Live Subtitles
+
+[![CI](https://github.com/martinx/LiveSubtitles/actions/workflows/ci.yml/badge.svg)](https://github.com/martinx/LiveSubtitles/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/martinx/LiveSubtitles?sort=semver)](https://github.com/martinx/LiveSubtitles/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20Apple%20silicon-lightgrey)
 
 Real-time **English** subtitles for anything playing on your Mac, plus a one-click
 export of the whole session to `.srt`.
 
-Runs in the menu bar, entirely on-device — no network calls, no accounts, no cloud.
+Runs in the menu bar, entirely on-device — no accounts, no cloud, and no audio ever
+leaves the machine.
+
+<img src="docs/hero.png" alt="The Live Subtitles overlay over a video" width="820">
+
+## Install
+
+Grab the latest release and drag the app to Applications:
+
+**<https://github.com/martinx/LiveSubtitles/releases/latest>**
+
+1. Unzip and move **Live Subtitles.app** into `/Applications`.
+2. Launch it. macOS asks for **Screen Recording** — that is how system audio is read.
+   Grant it under *System Settings → Privacy & Security → Screen Recording*, then
+   relaunch if you had to change it.
+3. Press <kbd>⌥</kbd><kbd>⌘</kbd><kbd>L</kbd> (or use the menu bar) to start listening.
+
+The first run also downloads and compiles the speech model — see
+[First run](#first-run).
 
 ## Requirements
 
@@ -11,27 +34,28 @@ Runs in the menu bar, entirely on-device — no network calls, no accounts, no c
 - Apple Silicon (the speech models run on the Neural Engine)
 - Xcode command line tools (`swift`)
 
-## Build & run
+## Build from source
 
 ```bash
-./build.sh          # release build + assembles build/LiveSubtitles.app, signed
-./run.sh            # quits any running copy and launches it
+git clone https://github.com/martinx/LiveSubtitles.git
+cd LiveSubtitles
+make install        # release build + copy to /Applications
 ```
 
-`./build.sh debug` compiles faster but runs slower — use it while iterating, release
-for actually watching something.
-
-## Install into /Applications
-
-```bash
-./install.sh        # release build + copy to /Applications/LiveSubtitles.app
-```
+| Command | What it does |
+|---|---|
+| `make` | release build → `build/LiveSubtitles.app` |
+| `make run` | build and launch from `build/` |
+| `make install` | build and copy to `/Applications` |
+| `make debug` | debug build — faster to compile, slower to run |
+| `make update` | `git pull`, rebuild, reinstall |
+| `make check-update` | report whether the remote has new commits |
+| `make icon` | regenerate `Resources/AppIcon.icns` |
+| `make dist` | build the zip attached to a release |
+| `make clean` | remove `build/` and `.build/` |
 
 Then launch it like any other app — Spotlight (`Cmd-Space` → `Live Subtitles`),
-Launchpad — or `open -a LiveSubtitles`. Re-run `./install.sh` after a change.
-
-For development, `./build.sh && ./run.sh` runs the bundle from `build/` without
-touching /Applications.
+Launchpad — or `open -a LiveSubtitles`.
 
 The **Screen Recording** grant is tied to the app's signature, so updating in place
 keeps the permission; if macOS asks again, re-grant it under *System Settings →
@@ -63,6 +87,9 @@ rest is the usual set of actions:
 | Copy Transcript | Puts the whole transcript on the clipboard |
 | Settings… | Engine, behaviour, appearance and shortcut options |
 | Restart Engine | Rebuilds the engine after an engine setting changed |
+| Check for Updates… | Asks GitHub for the latest release (see [Keeping up to date](#keeping-up-to-date)) |
+| How to Use | The first-run walkthrough, any time |
+| About Live Subtitles | Version, author, licence and links |
 | Quit | Stops capture and exits |
 
 The menu-bar icon reflects the state: a filled bubble while listening, a pause symbol
@@ -149,6 +176,7 @@ the test sentence. Worth trying only if a particular show trips up Parakeet.
 |---|---|
 | **Start listening when the app launches** | On by default. Turn off to launch idle and start with a shortcut. |
 | **Shortcuts** | Global Start / Pause / Stop bindings (own tab). |
+| **Check for updates automatically** | Daily `GET` of the public GitHub releases API. No identifiers are sent. |
 | **Model** | Which streaming speech model to run. Needs **Apply & Restart Engine**. |
 | End of sentence after | How much silence closes a subtitle line. Needs **Apply & Restart Engine**. |
 | **New line after silence** | Off / 2 / 3 / 5 / 8 s. After that much quiet, the next sentence starts a **fresh line** instead of being appended to the previous one. |
@@ -234,9 +262,9 @@ Design choices that keep it cheap:
 ## Debugging
 
 ```bash
-LIVESUBTITLES_DEBUG=1 ./run.sh                   # trace partials, cues, pauses, state
-LIVESUBTITLES_DUMP_SRT=/tmp/out.srt ./run.sh     # mirror the transcript to disk
-LIVESUBTITLES_OPEN_SETTINGS=1 ./run.sh           # open the settings window on launch
+LIVESUBTITLES_DEBUG=1 make run                    # trace partials, cues, state, hot keys
+LIVESUBTITLES_DUMP_SRT=/tmp/out.srt make run      # mirror the transcript to disk
+LIVESUBTITLES_OPEN=settings make run              # also: welcome, about
 ```
 
 Trace tags: `[partial]`, `[utterance]`, `[pause]`, `[newline]`, `[state]`, `[hotkey]`,
@@ -250,7 +278,7 @@ coral dot for "live". No third-party icon assets are used.
 
 ```bash
 python3 scripts/make-icon.py      # writes icon_1024.png + a size-legibility strip
-./build.sh                        # bundles Resources/AppIcon.icns
+make build                        # bundles Resources/AppIcon.icns
 ```
 
 ## Architecture
@@ -319,3 +347,73 @@ headers were pruned, so it would not even compile without patching the dependenc
   pre-processed.
 - **Auto-reconnect the capture stream** so a display change does not need a manual
   restart.
+
+## Keeping up to date
+
+The app knows its own version and can update itself:
+
+- **Automatically** — once a day it asks the public GitHub releases API for the latest
+  tag, if *Check for updates automatically* is on (Settings → General). Nothing about
+  you is sent; it is a plain `GET`.
+- **On demand** — *Check for Updates…* in the menu.
+- **Installing** — when there is a newer release, the menu offers *Update to x.y.z…*.
+  It downloads the zip, unpacks it, checks that the bundle reports the expected version
+  **and** passes `codesign --verify`, then hands the swap to a short script that waits
+  for the app to exit, keeps a backup of the old bundle, and **rolls back if the swap
+  fails**. That is deliberately not silent: the app carries a Screen Recording grant,
+  and silently replacing it is a good way to end up with something that will not launch.
+- **Self-install only works from `/Applications`.** Anywhere else the app says so rather
+  than guessing.
+
+If you built from source, `make update` pulls the latest commit, rebuilds and reinstalls.
+
+## Privacy
+
+Everything is on-device. There are exactly two network requests in the whole app:
+
+1. **The speech model download** — one time, from Hugging Face, on first use.
+2. **The update check** — a `GET` of the public GitHub releases API, at most once a day,
+   and it can be switched off.
+
+No audio, no transcript, no identifiers, no analytics, no account.
+
+## Releasing
+
+Tag and push; the [release workflow](.github/workflows/release.yml) builds the bundle,
+stamps the version from the tag, and publishes a GitHub Release with
+`LiveSubtitles.zip` attached:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+Without any secrets that produces a working but **ad-hoc signed** build — users have to
+right-click → Open once. For a download-and-run experience, add these repository secrets
+so the workflow signs with a Developer ID and notarises the result:
+
+| Secret | What it is |
+|---|---|
+| `APPLE_CERTIFICATE_BASE64` | your Developer ID Application certificate export (`.p12`), base64 encoded |
+| `APPLE_CERTIFICATE_PASSWORD` | the password you set on that export |
+| `APPLE_API_KEY_P8` | App Store Connect API key (`.p8`), base64 encoded |
+| `APPLE_API_KEY_ID` | that key's ID |
+| `APPLE_API_ISSUER_ID` | your App Store Connect issuer ID |
+
+`APPLE_ID` + `APPLE_APP_PASSWORD` + `APPLE_TEAM_ID` work too, if you would rather use an
+app-specific password than an API key. Every signing step is conditional, so the workflow
+stays green either way.
+
+The landing page in [`docs/`](docs) is published by GitHub Pages at
+<https://subtitles.bitey.ai>.
+
+## License
+
+[MIT](LICENSE). Bundled third-party components and the model licences are set out in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) — notably FluidAudio, which is Apache 2.0
+and is linked statically into the binary.
+
+## Contributing
+
+Bug reports and focused fixes are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+The one hard rule: **everything stays on-device**.

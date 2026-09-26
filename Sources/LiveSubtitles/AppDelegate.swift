@@ -9,15 +9,29 @@
 //
 
 import AppKit
+import Combine
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var controller: CaptionController?
     private var statusItem: NSStatusItem?
 
+    private lazy var aboutWindow = AboutWindow()
+    private lazy var welcomeWindow = WelcomeWindow()
+    private var updateChecker: UpdateChecker?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = CaptionController()
         self.controller = controller
+
+        let checker = UpdateChecker(defaults: .standard)
+        self.updateChecker = checker
+        // Rebuild the menu when a check finishes so "Update to …" appears.
+        checker.objectWillChange
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.refreshMenuTitle() }
+            }
+            .store(in: &observers)
 
         installMainMenu()
         installStatusItem()
@@ -26,24 +40,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.show(state)
         }
         controller.start()
+
+        if !controller.settings.hasSeenWelcome {
+            controller.settings.hasSeenWelcome = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.showWelcome()
+            }
+        }
+        checker.checkIfDue(enabled: controller.settings.checkForUpdates)
+
+        openDebugWindowIfRequested()
     }
+
+    /// LIVESUBTITLES_OPEN=settings|welcome|about opens a window straight away, so each
+    /// of them can be inspected without clicking through the menu.
+    /// LIVESUBTITLES_OPEN_SETTINGS=1 is the older spelling and still works.
+    private func openDebugWindowIfRequested() {
+        let environment = ProcessInfo.processInfo.environment
+        var request = environment["LIVESUBTITLES_OPEN"] ?? ""
+        if environment["LIVESUBTITLES_OPEN_SETTINGS"] != nil { request = "settings" }
+        guard !request.isEmpty else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            switch request {
+            case "settings": self?.openSettings()
+            case "welcome": self?.showWelcome()
+            case "about": self?.showAbout()
+            default: break
+            }
+        }
+    }
+
+    private var observers = Set<AnyCancellable>()
 
     // MARK: - Menu bar
 
     private func installStatusItem() {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: ListeningState.stopped.symbolName,
-                                           accessibilityDescription: "Live Subtitles")
-        statusItem.button?.toolTip = "Live Subtitles"
+                                           accessibilityDescription: AppInfo.name)
+        statusItem.button?.toolTip = AppInfo.name
 
         let menu = NSMenu()
         menu.delegate = self
+        // AppKit re-enables items by validating the action against the target whenever
+        // this is true (the default), which silently overrides `isEnabled` and greys out
+        // anything whose target does not implement the selector.
+        menu.autoenablesItems = false
         statusItem.menu = menu
         self.statusItem = statusItem
+
+        rebuild(menu)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         rebuild(menu)
+    }
+
+    private func refreshMenuTitle() {
+        if let menu = statusItem?.menu {
+            rebuild(menu)
+        }
     }
 
     private func rebuild(_ menu: NSMenu) {
@@ -69,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             shortcut: controller.settings.stopShortcut,
                             symbol: "stop.fill",
                             enabled: controller.state != .stopped))
+        menu.addItem(action("Restart Engine", #selector(restartEngine), symbol: "arrow.clockwise"))
         menu.addItem(.separator())
 
         menu.addItem(action("Clear Captions", #selector(clearCaptions), symbol: "eraser"))
@@ -77,13 +135,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(action("Copy Transcript", #selector(copyTranscript), symbol: "doc.on.doc"))
         menu.addItem(.separator())
 
+        addUpdateItems(to: menu)
+
         menu.addItem(action("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
-        menu.addItem(action("Restart Engine", #selector(restartEngine), symbol: "arrow.clockwise"))
+        menu.addItem(action("How to Use", #selector(showWelcome), symbol: "questionmark.circle"))
+        menu.addItem(action("About \(AppInfo.name)", #selector(showAbout), symbol: "info.circle"))
         menu.addItem(.separator())
-        menu.addItem(action("Quit Live Subtitles", #selector(NSApplication.terminate(_:)), key: "q",
-                            symbol: "power"))
+        menu.addItem(appAction("Quit \(AppInfo.name)", #selector(NSApplication.terminate(_:)), key: "q",
+                               symbol: "power"))
+
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+            for item in menu.items where !item.isSeparatorItem {
+                print("[menu] \(item.isEnabled ? "on " : "off") \(item.title)")
+            }
+        }
     }
 
+    private func addUpdateItems(to menu: NSMenu) {
+        guard let checker = updateChecker else { return }
+
+        switch checker.status {
+        case .available(let release):
+            menu.addItem(action("Update to \(release.version)…", #selector(offerUpdate),
+                                symbol: "arrow.down.circle"))
+        case .installing(let release):
+            menu.addItem(action("Installing \(release.version)…", #selector(offerUpdate),
+                                symbol: "arrow.down.circle", enabled: false))
+        default:
+            menu.addItem(action("Check for Updates…", #selector(checkForUpdates),
+                                symbol: "arrow.triangle.2.circlepath"))
+        }
+        menu.addItem(.separator())
+    }
+
+    /// An item whose action this delegate implements.
     @discardableResult
     private func action(_ title: String,
                         _ selector: Selector,
@@ -103,6 +188,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
+    /// An item whose action belongs to AppKit (Quit, Hide, About, Minimize).
+    ///
+    /// These must be nil-targeted so they travel the responder chain to `NSApplication`.
+    /// Pointing them at this delegate is what made Quit grey out: the delegate does not
+    /// implement `terminate:`.
+    private func appAction(_ title: String,
+                           _ selector: Selector,
+                           key: String = "",
+                           symbol: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+        item.target = nil
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return item
+    }
+
     // MARK: - State
 
     /// Menu-bar icon fills while capturing; the Dock tile (when shown) gets a LIVE badge.
@@ -114,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             print("[state] \(state.description)")
         }
         statusItem?.button?.image = NSImage(systemSymbolName: state.symbolName,
-                                            accessibilityDescription: "Live Subtitles")
+                                            accessibilityDescription: AppInfo.name)
         NSApp.dockTile.badgeLabel = state == .listening ? "LIVE" : nil
         NSApp.dockTile.display()
     }
@@ -129,24 +229,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
-        appMenu.addItem(action("About Live Subtitles",
-                               #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
-                               symbol: "info.circle"))
+        appMenu.autoenablesItems = false
+        appMenu.addItem(action("About \(AppInfo.name)", #selector(showAbout), symbol: "info.circle"))
+        appMenu.addItem(action("Check for Updates…", #selector(checkForUpdates),
+                               symbol: "arrow.triangle.2.circlepath"))
         appMenu.addItem(.separator())
         appMenu.addItem(action("Settings…", #selector(openSettings), key: ",", symbol: "gearshape"))
+        appMenu.addItem(action("How to Use", #selector(showWelcome), symbol: "questionmark.circle"))
         appMenu.addItem(.separator())
-        appMenu.addItem(action("Hide Live Subtitles", #selector(NSApplication.hide(_:)), key: "h",
-                               symbol: "eye.slash"))
-        appMenu.addItem(action("Quit Live Subtitles", #selector(NSApplication.terminate(_:)), key: "q",
-                               symbol: "power"))
+        appMenu.addItem(appAction("Hide \(AppInfo.name)", #selector(NSApplication.hide(_:)), key: "h",
+                                  symbol: "eye.slash"))
+        appMenu.addItem(appAction("Quit \(AppInfo.name)", #selector(NSApplication.terminate(_:)), key: "q",
+                                  symbol: "power"))
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
+        windowMenu.autoenablesItems = false
         windowMenu.addItem(action("Settings…", #selector(openSettings), symbol: "gearshape"))
-        windowMenu.addItem(action("Minimize", #selector(NSWindow.performMiniaturize(_:)), key: "m",
-                                  symbol: "arrow.down.right.and.arrow.up.left"))
+        windowMenu.addItem(appAction("Minimize", #selector(NSWindow.performMiniaturize(_:)), key: "m",
+                                     symbol: "arrow.down.right.and.arrow.up.left"))
         windowItem.submenu = windowMenu
         mainMenu.addItem(windowItem)
 
@@ -163,4 +266,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func exportTranscript() { controller?.exportTranscript() }
     @objc private func copyTranscript() { controller?.copyTranscript() }
     @objc private func openSettings() { controller?.openSettings() }
+
+    @objc private func showAbout() {
+        aboutWindow.show { [weak self] in self?.showWelcome() }
+    }
+
+    @objc private func showWelcome() {
+        guard let settings = controller?.settings else { return }
+        welcomeWindow.show(settings: settings) { [weak self] in
+            self?.controller?.startListening()
+        }
+    }
+
+    @objc private func checkForUpdates() {
+        guard let checker = updateChecker else { return }
+        Task {
+            await checker.check()
+            presentUpdateOutcome(checker)
+        }
+    }
+
+    @objc private func offerUpdate() {
+        guard let checker = updateChecker, let release = checker.availableRelease else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "\(AppInfo.name) \(release.version) is available"
+        alert.informativeText = release.notes.isEmpty
+            ? "You have \(AppInfo.version). Download and install it now?"
+            : String(release.notes.prefix(1200))
+        alert.addButton(withTitle: "Download & Install")
+        alert.addButton(withTitle: "Release Notes")
+        alert.addButton(withTitle: "Later")
+
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            Task { await checker.install(release) }
+        case .alertSecondButtonReturn:
+            NSWorkspace.shared.open(release.pageURL)
+        default:
+            break
+        }
+    }
+
+    private func presentUpdateOutcome(_ checker: UpdateChecker) {
+        let alert = NSAlert()
+        switch checker.status {
+        case .upToDate:
+            alert.messageText = "You're up to date"
+            alert.informativeText = "\(AppInfo.name) \(AppInfo.version) is the latest release."
+            alert.addButton(withTitle: "OK")
+        case .available(let release):
+            offerUpdate()
+            return
+        case .failed(let message):
+            alert.messageText = "Could not check for updates"
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+        case .installing:
+            return
+        default:
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
 }

@@ -3,12 +3,12 @@
 # Builds LiveSubtitles and installs it into /Applications so it can be launched
 # from Spotlight, Launchpad or the Dock.
 #
-#   ./install.sh
+#   scripts/install.sh
 #
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
-./build.sh release
+scripts/build.sh release
 
 TARGET="/Applications/LiveSubtitles.app"
 
@@ -26,4 +26,4 @@ LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchSe
 
 echo
 echo "==> installed: $TARGET"
-echo "    Launch from Spotlight (Cmd-Space -> LiveSubtitles), or:  open -a LiveSubtitles"
+echo "    Launch from Spotlight (Cmd-Space -> Live Subtitles), or:  open -a LiveSubtitles"

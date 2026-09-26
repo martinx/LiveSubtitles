@@ -1,4 +1,12 @@
-.build/
+# Build output
 build/
+.build/
+*.zip
+
+# Xcode / SwiftPM
+*.xcuserstate
+xcuserdata/
 .swiftpm/
+
+# macOS
 .DS_Store

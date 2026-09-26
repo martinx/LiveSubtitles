@@ -104,13 +104,6 @@ final class CaptionController {
         if settings.startAtLaunch {
             startListening()
         }
-
-        // LIVESUBTITLES_OPEN_SETTINGS=1 opens the settings window on launch.
-        if ProcessInfo.processInfo.environment["LIVESUBTITLES_OPEN_SETTINGS"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                self?.openSettings()
-            }
-        }
     }
 
     // MARK: - Start / pause / stop

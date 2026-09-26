@@ -41,11 +41,13 @@ struct SettingsView: View {
             Section {
                 Toggle("Start listening when the app launches", isOn: $settings.startAtLaunch)
                 Toggle("Show Dock icon", isOn: $settings.showInDock)
+                Toggle("Check for updates automatically", isOn: $settings.checkForUpdates)
             } header: {
                 Label("Startup", systemImage: "power")
             } footer: {
                 Text("The app is a menu-bar accessory, so it never takes activation away "
-                     + "from the video unless the Dock icon is on.")
+                     + "from the video unless the Dock icon is on. The update check is a "
+                     + "once-a-day request to GitHub; nothing about you is sent.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -239,14 +241,7 @@ final class SettingsWindow {
             created.title = "Live Subtitles Settings"
             created.styleMask = [.titled, .closable]
             created.isReleasedWhenClosed = false
-            // Centre on the menu-bar screen: `NSScreen.main` follows the key window,
-            // which an accessory app does not reliably have, and it would otherwise
-            // open the window on whichever display it happened to pick.
-            if let screen = NSScreen.screens.first(where: { $0.frame.origin == .zero }) ?? NSScreen.main {
-                let visible = screen.visibleFrame
-                created.setFrameOrigin(NSPoint(x: visible.midX - created.frame.width / 2,
-                                               y: visible.midY - created.frame.height / 2))
-            }
+            WindowPlacement.center(created)
             window = created
         }
 

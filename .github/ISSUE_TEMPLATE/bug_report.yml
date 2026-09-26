@@ -1,0 +1,56 @@
+name: Bug report
+description: Something is wrong with recognition, timing or the overlay
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Recognition and timing issues are much easier to fix with
+        a little detail up front.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: "macOS 26.0, MacBook Pro M3"
+    validations:
+      required: true
+  - type: dropdown
+    id: model
+    attributes:
+      label: Which engine is selected?
+      description: Settings -> Engine
+      options:
+        - Parakeet EOU 120M (@160 ms)
+        - Parakeet EOU 120M (@320 ms)
+        - Parakeet Unified 0.6B (@320 ms) - default
+        - Parakeet Unified 0.6B (@640 ms)
+        - Nemotron 0.6B (@560 ms)
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What happened, and what did you expect?
+      placeholder: |
+        Heard: "until the police arrive"
+        Shown: "until the. Police arrive."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How can it be reproduced?
+      description: Which app was playing, what kind of audio, does it happen every time?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug output (optional)
+      description: |
+        Run `LIVESUBTITLES_DEBUG=1 make run` and paste anything relevant.
+        Feel free to trim it.
+      render: text
+    validations:
+      required: false
