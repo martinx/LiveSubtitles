@@ -2,13 +2,45 @@
 //  CaptionController.swift
 //  LiveSubtitles
 //
-//  Wires capture -> transcriber -> captions, keeps the session transcript, and
-//  serves the menu actions (restart, export, settings).
+//  Wires capture -> transcriber -> captions, keeps the session transcript, and serves
+//  the menu actions and global shortcuts.
+//
+//  Three states, because "stop" and "pause" cost different things:
+//
+//    stopped   no capture, model released   (~600 MB back; resuming reloads, ~2 s)
+//    paused    no capture, model still warm (resume is instant)
+//    listening capturing and transcribing
+//
+//  Pausing keeps the model loaded on purpose: the point of a pause is to come back in a
+//  second, so paying the model load again would defeat it. Stopping is for "I am not
+//  using this right now".
 //
 
 import AppKit
 import Combine
 import UniformTypeIdentifiers
+
+enum ListeningState {
+    case stopped
+    case listening
+    case paused
+
+    var description: String {
+        switch self {
+        case .stopped: return "Stopped"
+        case .listening: return "Listening"
+        case .paused: return "Paused"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .stopped: return "captions.bubble"
+        case .listening: return "captions.bubble.fill"
+        case .paused: return "pause.circle"
+        }
+    }
+}
 
 @MainActor
 final class CaptionController {
@@ -18,17 +50,20 @@ final class CaptionController {
 
     private var capture: SystemAudioCapture?
     private var transcriber: StreamingTranscriber?
+    private var transcriberSignature = ""
     private var panel: CaptionPanel?
     private var consumer: Task<Void, Never>?
     private var engineTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
+    private var hotKeySignature = ""
 
     private lazy var settingsWindow = SettingsWindow()
 
-    /// Fired whenever capture starts or stops, so the menu bar and Dock can show it.
-    var onListeningChanged: ((Bool) -> Void)?
-    private var isListening = false {
-        didSet { if isListening != oldValue { onListeningChanged?(isListening) } }
+    /// Fired on every state change so the menu bar icon and Dock can follow.
+    var onStateChanged: ((ListeningState) -> Void)?
+
+    private(set) var state: ListeningState = .stopped {
+        didSet { if state != oldValue { onStateChanged?(state) } }
     }
 
     init() {
@@ -43,6 +78,7 @@ final class CaptionController {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     self.applyActivationPolicy()
+                    self.syncHotKeys()
                     guard let panel = self.panel else { return }
                     panel.applyLayout(settings: self.settings)
                     panel.applyInteraction(settings: self.settings)
@@ -50,6 +86,8 @@ final class CaptionController {
             }
             .store(in: &cancellables)
     }
+
+    // MARK: - Lifecycle
 
     /// Menu-bar only by default; the Dock icon is opt-in so the app can never take
     /// activation away from whatever is playing.
@@ -60,7 +98,12 @@ final class CaptionController {
     func start() {
         applyActivationPolicy()
         showPanel()
-        restart()
+        syncHotKeys()
+        onStateChanged?(state)
+
+        if settings.startAtLaunch {
+            startListening()
+        }
 
         // LIVESUBTITLES_OPEN_SETTINGS=1 opens the settings window on launch.
         if ProcessInfo.processInfo.environment["LIVESUBTITLES_OPEN_SETTINGS"] != nil {
@@ -70,15 +113,176 @@ final class CaptionController {
         }
     }
 
-    func restart() {
+    // MARK: - Start / pause / stop
+
+    /// Begin listening, or resume from a pause. Both are safe to call repeatedly.
+    func startListening() {
+        engineTask?.cancel()
+        engineTask = Task { [weak self] in
+            await self?.beginSession()
+        }
+    }
+
+    /// Stop capturing but keep the model loaded, so coming back is instant.
+    func pauseListening() {
+        engineTask?.cancel()
+        engineTask = Task { [weak self] in
+            await self?.endSession(releaseModel: false)
+        }
+    }
+
+    /// Stop capturing and release the model.
+    func stopListening() {
+        engineTask?.cancel()
+        engineTask = Task { [weak self] in
+            await self?.endSession(releaseModel: true)
+        }
+    }
+
+    /// Rebuild the engine from scratch, e.g. after an engine setting changed.
+    func restartEngine() {
         engineTask?.cancel()
         engineTask = Task { [weak self] in
             guard let self else { return }
-            await self.teardown()
+            await self.endSession(releaseModel: true)
             guard !Task.isCancelled else { return }
-            await self.run()
+            await self.beginSession()
         }
     }
+
+    private func beginSession() async {
+        guard state != .listening else { return }
+
+        let transcriber = await makeOrReuseTranscriber()
+        let capture = SystemAudioCapture()
+        self.capture = capture
+
+        if state == .stopped {
+            captions.setStatus("Loading speech model… (first use downloads it)")
+            captions.clear()
+        }
+
+        do {
+            let audio = capture.makeAudioStream()
+            // Every session starts with a clean decoder, so a resume cannot replay the
+            // tail of whatever was being said before the pause.
+            let updates = try await transcriber.updates(from: audio, resettingDecoder: true)
+            try await capture.start()
+            state = .listening
+            captions.setStatus("")
+            consume(updates)
+        } catch {
+            captions.setStatus("Error: \(error.localizedDescription)")
+            self.capture = nil
+            state = .stopped
+        }
+    }
+
+    private func endSession(releaseModel: Bool) async {
+        consumer?.cancel()
+        consumer = nil
+        await capture?.stop()
+        capture = nil
+
+        // The overlay goes quiet either way; the exported transcript is untouched.
+        captions.clear()
+
+        if releaseModel {
+            await transcriber?.stop()
+            transcriber = nil
+            transcriberSignature = ""
+            state = .stopped
+        } else {
+            state = .paused
+        }
+    }
+
+    /// Engine settings are baked into the transcriber at construction, so a changed
+    /// model or threshold means building a new one (and releasing the old model).
+    private func makeOrReuseTranscriber() async -> StreamingTranscriber {
+        let signature = "\(settings.modelID)|\(settings.eouDebounceMs)|\(Int(settings.newLineAfterSilence))"
+        if let transcriber, signature == transcriberSignature {
+            return transcriber
+        }
+        if let previous = transcriber {
+            await previous.stop()
+            transcriber = nil
+        }
+
+        let model = SpeechModel(rawValue: settings.modelID) ?? .default
+        let created = StreamingTranscriber(model: model,
+                                           eouDebounceMs: settings.eouDebounceMs,
+                                           pauseMs: Int(settings.newLineAfterSilence * 1000))
+        transcriber = created
+        transcriberSignature = signature
+        return created
+    }
+
+    private func consume(_ updates: AsyncStream<CaptionUpdate>) {
+        consumer?.cancel()
+        consumer = Task { @MainActor [weak self] in
+            for await update in updates {
+                guard let self else { return }
+                switch update.kind {
+                case .partial:
+                    self.captions.applyPartial(update.text)
+
+                case .pause:
+                    // Quiet audio: the next sentence starts a new line.
+                    self.captions.markPause()
+
+                case .utterance:
+                    let line = Self.finalize(update.text)
+                    guard !line.isEmpty else { break }
+                    self.transcript.append(TranscriptCue(startMs: update.startMs,
+                                                         endMs: update.endMs,
+                                                         text: line))
+                    self.captions.applyUtterance(line)
+                    self.dumpSRTIfRequested()
+                }
+            }
+        }
+    }
+
+    // MARK: - Global shortcuts
+
+    /// Register the configured shortcuts. Re-registers only when they actually changed,
+    /// because this is also called from the catch-all settings observer.
+    func syncHotKeys() {
+        let signature = [settings.startShortcut, settings.pauseShortcut, settings.stopShortcut]
+            .map { $0?.storage ?? "-" }
+            .joined(separator: ",")
+        guard signature != hotKeySignature else { return }
+        hotKeySignature = signature
+
+        let debug = ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil
+        var bindings: [(KeyShortcut, () -> Void)] = []
+        if let shortcut = settings.startShortcut {
+            bindings.append((shortcut, { [weak self] in
+                if debug { print("[hotkey] start") }
+                self?.startListening()
+            }))
+        }
+        if let shortcut = settings.pauseShortcut {
+            bindings.append((shortcut, { [weak self] in
+                if debug { print("[hotkey] pause") }
+                self?.pauseListening()
+            }))
+        }
+        if let shortcut = settings.stopShortcut {
+            bindings.append((shortcut, { [weak self] in
+                if debug { print("[hotkey] stop") }
+                self?.stopListening()
+            }))
+        }
+
+        let rejected = GlobalHotKeyCenter.shared.replaceAll(with: bindings)
+        if !rejected.isEmpty {
+            print("[hotkey] already taken by another app: \(rejected.map(\.display).joined(separator: ", "))")
+        }
+    }
+
+    // MARK: - Session
 
     func clearSession() {
         transcript.clear()
@@ -89,83 +293,18 @@ final class CaptionController {
         settingsWindow.show(
             settings: settings,
             transcript: transcript,
-            onApplyEngine: { [weak self] in self?.restart() },
+            onApplyEngine: { [weak self] in self?.restartEngine() },
             onExport: { [weak self] in self?.exportTranscript() },
             onCopy: { [weak self] in self?.copyTranscript() },
             onClear: { [weak self] in self?.clearSession() }
         )
     }
 
-    // MARK: - Pipeline
-
     private func showPanel() {
         guard panel == nil else { return }
         let panel = CaptionPanel(model: captions, settings: settings)
         panel.orderFrontRegardless()
         self.panel = panel
-    }
-
-    private func run() async {
-        captions.setStatus("Loading speech model… (first use downloads it)")
-        captions.clear()
-
-        let model = SpeechModel(rawValue: settings.modelID) ?? .default
-        let transcriber = StreamingTranscriber(
-            model: model,
-            eouDebounceMs: settings.eouDebounceMs,
-            pauseMs: Int(settings.newLineAfterSilence * 1000)
-        )
-        self.transcriber = transcriber
-
-        let capture = SystemAudioCapture()
-        self.capture = capture
-
-        do {
-            let audio = capture.makeAudioStream()
-            let updates = try await transcriber.updates(from: audio)
-            try await capture.start()
-            isListening = true
-
-            // Nothing to show while listening quietly; the panel stays empty until
-            // the first words arrive.
-            captions.setStatus("")
-
-            consumer = Task { @MainActor [weak self] in
-                for await update in updates {
-                    guard let self else { return }
-                    switch update.kind {
-                    case .partial:
-                        self.captions.applyPartial(update.text)
-
-                    case .pause:
-                        // Quiet audio: the next sentence starts a new line.
-                        self.captions.markPause()
-
-                    case .utterance:
-                        let line = Self.finalize(update.text)
-                        guard !line.isEmpty else { break }
-                        self.transcript.append(TranscriptCue(startMs: update.startMs,
-                                                             endMs: update.endMs,
-                                                             text: line))
-                        self.captions.applyUtterance(line)
-                        self.dumpSRTIfRequested()
-                    }
-                }
-            }
-        } catch {
-            captions.setStatus("Error: \(error.localizedDescription)")
-            isListening = false
-        }
-    }
-
-    private func teardown() async {
-        isListening = false
-        consumer?.cancel()
-        consumer = nil
-        await capture?.stop()
-        capture = nil
-        await transcriber?.stop()
-        transcriber = nil
     }
 
     // MARK: - Export

@@ -2,9 +2,9 @@
 //  SettingsWindow.swift
 //  LiveSubtitles
 //
-//  A native grouped-form settings window. Engine options need a restart to take
-//  effect (they are baked into the speech manager at construction); everything else
-//  applies immediately.
+//  A tabbed, native settings window. Engine options need a restart to take effect (they
+//  are baked into the speech manager when it is constructed); everything else applies
+//  immediately.
 //
 
 import AppKit
@@ -21,6 +21,80 @@ struct SettingsView: View {
     let onClear: () -> Void
 
     var body: some View {
+        TabView {
+            general
+                .tabItem { Label("General", systemImage: "gearshape") }
+            engine
+                .tabItem { Label("Engine", systemImage: "speedometer") }
+            appearance
+                .tabItem { Label("Appearance", systemImage: "textformat.size") }
+            shortcuts
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+        }
+        .frame(width: 560, height: 500)
+    }
+
+    // MARK: - General
+
+    private var general: some View {
+        Form {
+            Section {
+                Toggle("Start listening when the app launches", isOn: $settings.startAtLaunch)
+                Toggle("Show Dock icon", isOn: $settings.showInDock)
+            } header: {
+                Label("Startup", systemImage: "power")
+            } footer: {
+                Text("The app is a menu-bar accessory, so it never takes activation away "
+                     + "from the video unless the Dock icon is on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Picker("Start a new line after", selection: $settings.newLineAfterSilence) {
+                    Text("Off — keep appending").tag(0.0)
+                    Text("2 s of quiet").tag(2.0)
+                    Text("3 s of quiet").tag(3.0)
+                    Text("5 s of quiet").tag(5.0)
+                    Text("8 s of quiet").tag(8.0)
+                }
+                Toggle("Keep captions on screen", isOn: $settings.alwaysVisible)
+                Toggle("Drag to reposition", isOn: $settings.draggable)
+                Button("Reset overlay position", action: settings.resetPosition)
+            } header: {
+                Label("Behaviour", systemImage: "text.bubble")
+            } footer: {
+                Text(settings.draggable
+                     ? "On: the overlay captures clicks in its area — turn off once positioned."
+                     : "Click-through. Turn on dragging to move the overlay; the spot is remembered.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                HStack {
+                    Button("Export…", action: onExport)
+                    Button("Copy", action: onCopy)
+                    Spacer()
+                    Button("Clear", role: .destructive, action: onClear)
+                        .disabled(transcript.isEmpty)
+                }
+            } header: {
+                Label("Transcript", systemImage: "square.and.arrow.down")
+            } footer: {
+                Text(transcript.isEmpty
+                     ? "Nothing captured yet."
+                     : "\(transcript.count) line\(transcript.count == 1 ? "" : "s") captured this session. Stopping the engine keeps them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - Engine
+
+    private var engine: some View {
         Form {
             Section {
                 Picker("Model", selection: $settings.modelID) {
@@ -44,46 +118,30 @@ struct SettingsView: View {
                 }
                 Button("Apply & Restart Engine", action: onApplyEngine)
             } header: {
-                Label("Performance", systemImage: "speedometer")
+                Label("Speech model", systemImage: "waveform")
             } footer: {
-                Text("Reloads the model on restart; your transcript is kept. Larger "
-                     + "models download on first use.")
+                Text("The engine is built when the model loads, so these apply after a "
+                     + "restart. Larger models download on first use; your transcript is kept.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            Section {
-                Picker("Start a new line after", selection: $settings.newLineAfterSilence) {
-                    Text("Off — keep appending").tag(0.0)
-                    Text("2 s of quiet").tag(2.0)
-                    Text("3 s of quiet").tag(3.0)
-                    Text("5 s of quiet").tag(5.0)
-                    Text("8 s of quiet").tag(8.0)
-                }
-                Toggle("Keep captions on screen", isOn: $settings.alwaysVisible)
-                Toggle("Drag to reposition", isOn: $settings.draggable)
-                Toggle("Show Dock icon", isOn: $settings.showInDock)
+    private var selectedModelNote: String {
+        (SpeechModel(rawValue: settings.modelID) ?? .default).note
+    }
 
-                HStack {
-                    Button("Reset overlay position", action: settings.resetPosition)
-                    Spacer()
-                }
-            } header: {
-                Label("Behaviour", systemImage: "text.bubble")
-            } footer: {
-                Text(settings.draggable
-                     ? "On: the overlay captures clicks in its area — turn off once positioned."
-                     : "Click-through. Turn on dragging to move it; the position is remembered.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    // MARK: - Appearance
 
+    private var appearance: some View {
+        Form {
             Section {
                 slider("Font size", value: $settings.fontSize, range: 16...48, suffix: "pt")
                 slider("Width", value: $settings.widthFraction, range: 0.4...0.98, percent: true)
                 slider("Background", value: $settings.backgroundOpacity, range: 0...0.95, percent: true)
                 slider("Distance from bottom", value: $settings.bottomInset, range: 0...600, suffix: "pt")
-
                 Picker("Max lines", selection: $settings.lineLimit) {
                     ForEach(1...5, id: \.self) { count in
                         Text("\(count)").tag(count)
@@ -91,38 +149,51 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             } header: {
-                Label("Appearance", systemImage: "textformat.size")
+                Label("Overlay", systemImage: "rectangle.on.rectangle")
             } footer: {
                 Text("1 = current sentence only · 2 = previous line above it · more keeps history.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+    }
 
+    // MARK: - Shortcuts
+
+    private var shortcuts: some View {
+        Form {
             Section {
-                HStack {
-                    Button("Export…", action: onExport)
-                    Button("Copy", action: onCopy)
-                    Spacer()
-                    Button("Clear", role: .destructive, action: onClear)
-                        .disabled(transcript.isEmpty)
+                LabeledContent("Start listening") {
+                    ShortcutRecorder(shortcut: $settings.startShortcut)
+                }
+                LabeledContent("Pause listening") {
+                    ShortcutRecorder(shortcut: $settings.pauseShortcut)
+                }
+                LabeledContent("Stop listening") {
+                    ShortcutRecorder(shortcut: $settings.stopShortcut)
                 }
             } header: {
-                Label("Transcript", systemImage: "square.and.arrow.down")
+                Label("Global shortcuts", systemImage: "keyboard")
             } footer: {
-                Text(transcript.isEmpty
-                     ? "Nothing captured yet."
-                     : "\(transcript.count) line\(transcript.count == 1 ? "" : "s") captured this session.")
+                Text("These work while any app is frontmost. Record expects at least one "
+                     + "modifier (⌘ ⌥ ⌃ ⇧); Escape cancels, Delete clears. A combination "
+                     + "another app already owns will silently not take effect.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Text("Pause keeps the model loaded so you can come straight back. Stop "
+                     + "releases it — about 600 MB — and starting again reloads it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 840)
     }
 
-    private var selectedModelNote: String {
-        (SpeechModel(rawValue: settings.modelID) ?? .default).note
-    }
+    // MARK: - Helpers
 
     private func slider(_ title: String,
                         value: Binding<Double>,

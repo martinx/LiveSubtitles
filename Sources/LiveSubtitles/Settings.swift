@@ -24,6 +24,10 @@ final class Settings: ObservableObject {
         static let alwaysVisible = "alwaysVisible"
         static let draggable = "draggable"
         static let showInDock = "showInDock"
+        static let startAtLaunch = "startAtLaunch"
+        static let startShortcut = "startShortcut"
+        static let pauseShortcut = "pauseShortcut"
+        static let stopShortcut = "stopShortcut"
         static let hasCustomPosition = "hasCustomPosition"
         static let panelX = "panelX"
         static let panelY = "panelY"
@@ -55,6 +59,19 @@ final class Settings: ObservableObject {
     /// Show a Dock icon as well as the menu-bar item. Off by default: an accessory
     /// app can never activate itself over the video.
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: Key.showInDock) } }
+    /// Begin listening as soon as the app launches.
+    @Published var startAtLaunch: Bool { didSet { defaults.set(startAtLaunch, forKey: Key.startAtLaunch) } }
+
+    /// Global shortcuts. `nil` means "not bound".
+    @Published var startShortcut: KeyShortcut? {
+        didSet { defaults.set(startShortcut?.storage ?? "", forKey: Key.startShortcut) }
+    }
+    @Published var pauseShortcut: KeyShortcut? {
+        didSet { defaults.set(pauseShortcut?.storage ?? "", forKey: Key.pauseShortcut) }
+    }
+    @Published var stopShortcut: KeyShortcut? {
+        didSet { defaults.set(stopShortcut?.storage ?? "", forKey: Key.stopShortcut) }
+    }
 
     // MARK: - Overlay position
 
@@ -88,6 +105,10 @@ final class Settings: ObservableObject {
             Key.alwaysVisible: false,
             Key.draggable: false,
             Key.showInDock: false,
+            Key.startAtLaunch: true,
+            Key.startShortcut: KeyShortcut.defaultStart.storage,
+            Key.pauseShortcut: KeyShortcut.defaultPause.storage,
+            Key.stopShortcut: KeyShortcut.defaultStop.storage,
             Key.hasCustomPosition: false,
             Key.panelX: 0.0,
             Key.panelY: 0.0,
@@ -111,9 +132,20 @@ final class Settings: ObservableObject {
         alwaysVisible = defaults.bool(forKey: Key.alwaysVisible)
         draggable = defaults.bool(forKey: Key.draggable)
         showInDock = defaults.bool(forKey: Key.showInDock)
+        startAtLaunch = defaults.bool(forKey: Key.startAtLaunch)
+        startShortcut = Self.loadShortcut(defaults, Key.startShortcut)
+        pauseShortcut = Self.loadShortcut(defaults, Key.pauseShortcut)
+        stopShortcut = Self.loadShortcut(defaults, Key.stopShortcut)
         hasCustomPosition = defaults.bool(forKey: Key.hasCustomPosition)
         panelX = defaults.double(forKey: Key.panelX)
         panelY = defaults.double(forKey: Key.panelY)
+    }
+
+    /// Empty string is how a cleared shortcut is stored, which is different from the
+     /// key being absent (that yields the registered default).
+    private static func loadShortcut(_ defaults: UserDefaults, _ key: String) -> KeyShortcut? {
+        guard let raw = defaults.string(forKey: key), !raw.isEmpty else { return nil }
+        return KeyShortcut(storage: raw)
     }
 
     /// Forget the dragged position and go back to the configured bottom-centre spot.

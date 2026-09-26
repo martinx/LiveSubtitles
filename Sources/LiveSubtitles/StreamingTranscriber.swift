@@ -144,8 +144,16 @@ final class StreamingTranscriber {
 
     /// Loads the model (downloading it on first use), then consumes `audio` forever,
     /// emitting caption updates as they are decoded.
-    func updates(from audio: AsyncStream<AVAudioPCMBuffer>) async throws -> AsyncStream<CaptionUpdate> {
+    ///
+    /// - Parameter resettingDecoder: wipe the decoder's accumulated transcript first.
+    ///   Used when resuming after a pause, so the new session cannot replay the tail of
+    ///   whatever was being said before it.
+    func updates(from audio: AsyncStream<AVAudioPCMBuffer>,
+                 resettingDecoder: Bool = false) async throws -> AsyncStream<CaptionUpdate> {
         try await manager.loadModels()
+        if resettingDecoder {
+            try? await manager.reset()
+        }
 
         let (updates, continuation) = AsyncStream<CaptionUpdate>.makeStream(
             bufferingPolicy: .unbounded
