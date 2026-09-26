@@ -32,6 +32,10 @@ final class SystemAudioCapture: NSObject {
 
     private var stream: SCStream?
     private var continuation: AsyncStream<AVAudioPCMBuffer>.Continuation?
+
+    /// Fed every buffer alongside the transcriber, so a session's audio is kept whether or not
+    /// the recogniser is keeping up. Set before `start()`.
+    var recorder: SessionRecorder?
     private let sampleQueue = DispatchQueue(label: "com.local.LiveSubtitles.audio", qos: .userInteractive)
 
     /// Create this before calling `start()`.
@@ -83,6 +87,7 @@ extension SystemAudioCapture: SCStreamOutput {
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, CMSampleBufferDataIsReady(sampleBuffer) else { return }
         guard let buffer = Self.makePCMBuffer(from: sampleBuffer) else { return }
+        recorder?.append(buffer)
         continuation?.yield(buffer)
     }
 

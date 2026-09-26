@@ -514,7 +514,10 @@ final class LibraryModel: ObservableObject {
 
     func deleteSelectedSessions() async {
         guard let store else { return }
-        for id in sessionSelection { try? await store.deleteSession(id) }
+        for id in sessionSelection {
+            removeAudio(of: id)
+            try? await store.deleteSession(id)
+        }
         sessionSelection = []
         await refresh()
     }
@@ -553,6 +556,13 @@ final class LibraryModel: ObservableObject {
     func toggleFolderExpansion(_ id: String) {
         if expandedFolders.contains(id) { expandedFolders.remove(id) }
         else { expandedFolders.insert(id) }
+    }
+
+    /// Deleting a session deletes the audio it was transcribed from. Leaving the files behind
+    /// would mean a library that says it is empty while the disk quietly fills.
+    private func removeAudio(of sessionID: String) {
+        guard let url = try? SessionRecorder.url(for: sessionID) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// Re-reads the archive after the recorder writes to it.
@@ -726,6 +736,7 @@ final class LibraryModel: ObservableObject {
 
     func delete(_ id: String) async {
         guard let store else { return }
+        removeAudio(of: id)
         try? await store.deleteSession(id)
         if selectedSessionID == id { selectedSessionID = nil }
         await refresh()

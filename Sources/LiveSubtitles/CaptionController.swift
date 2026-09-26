@@ -70,6 +70,8 @@ final class CaptionController {
     /// Persistent history. Created on first use; a failure here must never stop captioning.
     private var history: HistoryStore?
     private var liveSession: Session?
+    /// Keeps the audio this session was transcribed from. Created with the session.
+    private var recorder: SessionRecorder?
     /// The engine options the running transcriber was built with.
     private var engineSettingsSignature = ""
 
@@ -108,6 +110,14 @@ final class CaptionController {
     }
 
     // MARK: - Lifecycle
+
+    /// Flushes the recording. Called when the app is about to quit, because a recorder that
+    /// is only torn down when its object is released never gets that chance on a quit — and
+    /// without the flush the file has no header and cannot be opened at all.
+    func flushRecording() {
+        recorder?.close()
+        recorder = nil
+    }
 
     /// Menu-bar only by default; the Dock icon is opt-in so the app can never take
     /// activation away from whatever is playing. Not private: the View menu flips the
@@ -181,10 +191,14 @@ final class CaptionController {
             // Every session starts with a clean decoder, so a resume cannot replay the
             // tail of whatever was being said before the pause.
             let updates = try await transcriber.updates(from: audio, resettingDecoder: true)
+            // The session and its recorder exist before capture starts, so the first words
+            // are recorded too; attaching afterwards would lose the opening seconds.
+            await beginHistorySession()
+            capture.recorder = recorder
+
             try await capture.start()
             state = .listening
             captions.setStatus("")
-            await beginHistorySession()
             consume(updates)
         } catch {
             captions.setStatus("Error: \(error.localizedDescription)")
@@ -293,6 +307,21 @@ final class CaptionController {
             let model = SpeechModel(rawValue: settings.modelID) ?? .default
             let session = try await history.startSession(source: source, modelID: model.rawValue)
             liveSession = session
+
+            // Start recording straight away. A failure here is reported and the session runs
+            // without audio: losing the recording is much better than losing the captions.
+            do {
+                let url = try SessionRecorder.url(for: session.id)
+                let made = try SessionRecorder(url: url, sampleRate: 16_000, channels: 1)
+                recorder = made
+                try await history.setAudioPath(url.path, for: session.id)
+                if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
+                    print("[rec] recording to \(url.lastPathComponent)")
+                }
+            } catch {
+                recorder = nil
+                captions.setStatus("Recording unavailable: \(error.localizedDescription)")
+            }
             if ProcessInfo.processInfo.environment["LIVESUBTITLES_DEBUG"] != nil {
                 print("[history] session started — \(session.title)")
             }
@@ -305,6 +334,9 @@ final class CaptionController {
     }
 
     private func endHistorySession() async {
+        recorder?.close()
+        recorder = nil
+        capture?.recorder = nil
         guard let history, let session = liveSession else { return }
         try? await history.endSession(session.id)
         NotificationCenter.default.post(name: .liveSubtitlesHistoryChanged, object: nil)

@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var welcomeWindow = WelcomeWindow()
     private var updateChecker: UpdateChecker?
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // The recording is only readable once its file has been closed.
+        controller?.flushRecording()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = CaptionController()
         self.controller = controller

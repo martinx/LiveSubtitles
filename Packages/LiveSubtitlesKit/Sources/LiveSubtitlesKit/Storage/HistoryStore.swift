@@ -99,6 +99,21 @@ public actor HistoryStore {
             }
             try connection.setUserVersion(2)
         }
+        if connection.userVersion < 3 {
+            try connection.transaction {
+                try connection.execute("""
+                -- Where the session's audio was kept, and when the enhanced pass ran over it.
+                ALTER TABLE sessions ADD COLUMN audioPath TEXT;
+                ALTER TABLE sessions ADD COLUMN enhancedAt REAL;
+
+                -- The enhanced reading of a cue, beside the raw one rather than replacing it:
+                -- the raw text is what the live pass heard, and it is the evidence.
+                ALTER TABLE cues ADD COLUMN cleanText TEXT;
+                ALTER TABLE cues ADD COLUMN speaker TEXT;
+                """)
+            }
+            try connection.setUserVersion(3)
+        }
     }
 
     // MARK: - Sessions
@@ -123,6 +138,11 @@ public actor HistoryStore {
         try connection.run("""
             INSERT INTO cues (sessionID, startMs, endMs, text) VALUES (?, ?, ?, ?);
             """, [.text(sessionID), .int(Int64(startMs)), .int(Int64(endMs)), .text(text)])
+    }
+
+    public func setAudioPath(_ path: String?, for sessionID: String) throws {
+        try connection.run("UPDATE sessions SET audioPath = ? WHERE id = ?;",
+                           [path.map { SQLValue.text($0) } ?? .null, .text(sessionID)])
     }
 
     public func endSession(_ id: String, at date: Date = Date()) throws {
