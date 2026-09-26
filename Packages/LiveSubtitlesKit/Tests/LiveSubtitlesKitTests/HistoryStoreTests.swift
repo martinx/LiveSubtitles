@@ -165,6 +165,33 @@ final class HistoryStoreTests: XCTestCase {
         XCTAssertNil(remaining[0].folderID)
     }
 
+    func testFileSessionGroupsEpisodesAndIgnoresTimestampTitles() async throws {
+        let store = try HistoryStore(url: url)
+        // Sessions are born with a timestamp title; grouping on those would make junk.
+        let first = try await store.startSession(source: "Netflix")
+        let second = try await store.startSession(source: "Netflix")
+        let filedFirst = try await store.fileSession(first.id)
+        let filedSecond = try await store.fileSession(second.id)
+        let beforeNaming = try await store.folders()
+        XCTAssertNil(filedFirst)
+        XCTAssertNil(filedSecond, "a shared time prefix is not a series")
+        XCTAssertTrue(beforeNaming.isEmpty)
+
+        // Naming them is what tells us what they are.
+        try await store.rename(first.id, to: "Severance S02E05")
+        try await store.rename(second.id, to: "Severance S02E06")
+
+        let folder = try await store.fileSession(first.id)
+        XCTAssertEqual(folder?.name, "Severance")
+
+        // The second one joins the folder the first created, rather than making another.
+        let again = try await store.fileSession(second.id)
+        XCTAssertEqual(again?.id, folder?.id)
+        let folders = try await store.folders()
+        XCTAssertEqual(folders.count, 1)
+        XCTAssertEqual(folders.first?.sessionCount, 2)
+    }
+
     func testSuggestedFolderNameFromSiblingTitles() async throws {
         let store = try HistoryStore(url: url)
         _ = try await store.startSession(source: "TV", title: "Severance S02E01")

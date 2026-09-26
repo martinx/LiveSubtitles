@@ -561,6 +561,11 @@ struct LibraryView: View {
             Text("Double-click a word for its meaning · right-click for more")
                 .font(.caption).foregroundStyle(.secondary)
             Spacer()
+            if let filed = model.lastFiled {
+                Label(filed, systemImage: "folder.badge.checkmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if case .failed(let why) = model.translationPhase {
                 Label(why, systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange).lineLimit(1)

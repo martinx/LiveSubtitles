@@ -169,6 +169,29 @@ extension HistoryStore {
         }.first
     }
 
+    /// Files a session under the folder its title implies, creating that folder the first
+    /// time. Returns nil when the title suggests nothing, which is the normal case for a
+    /// first episode and for the timestamp titles sessions are born with.
+    ///
+    /// Called after a rename rather than when recording starts: at recording time the title
+    /// is still "Netflix · 27 Sep 21:14", and grouping on that would fill the sidebar with
+    /// junk. Once the user has named it, we know what it is.
+    @discardableResult
+    public func fileSession(_ sessionID: String, creating: Bool = true) throws -> Folder? {
+        guard let name = try suggestedFolderName(for: sessionID), !name.isEmpty else { return nil }
+
+        if let existing = try folders().first(where: {
+            $0.name.compare(name, options: .caseInsensitive) == .orderedSame
+        }) {
+            try move(sessionID, to: existing.id)
+            return existing
+        }
+        guard creating else { return nil }
+        let folder = try createFolder(name)
+        try move(sessionID, to: folder.id)
+        return folder
+    }
+
     /// A guess at where a session belongs, from the titles already in the history.
     ///
     /// "Severance S02E05" beside "Severance S02E06" suggests "Severance": the longest common
@@ -193,6 +216,18 @@ extension HistoryStore {
         }
         guard let cut = best.lastIndex(of: " ") else { return nil }
         let name = String(best[..<cut]).trimmingCharacters(in: .whitespaces)
-        return name.count >= 3 ? name : nil
+        guard name.count >= 3, !looksGenerated(name) else { return nil }
+        return name
+    }
+
+    /// Sessions are born titled "Netflix · 27 Sep 21:14", so two of them share a long prefix
+    /// that is a timestamp, not a series. Grouping on that would fill the sidebar with
+    /// folders named after dates. Anything carrying the separator we generate titles with,
+    /// a clock time, or a month name is not a name a person chose.
+    private func looksGenerated(_ name: String) -> Bool {
+        if name.contains("·") { return true }
+        if name.range(of: #"\d{1,2}:\d{2}"#, options: .regularExpression) != nil { return true }
+        let months = #"(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b"#
+        return name.range(of: months, options: .regularExpression) != nil
     }
 }

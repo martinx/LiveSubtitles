@@ -148,6 +148,10 @@ final class LibraryModel: ObservableObject {
     @Published var noteDraft: NoteDraft?
 
     // ⌘K palette.
+    /// A one-line acknowledgement shown after the app files something by itself, so the
+    /// move is never silent.
+    @Published var lastFiled: String?
+
     @Published var isPaletteVisible = false
     @Published var paletteSelection = 0
     @Published private(set) var paletteResults = PaletteResults()
@@ -423,17 +427,10 @@ final class LibraryModel: ObservableObject {
     /// This is the point of the tree: nobody stops watching to file an episode. The name
     /// comes from the titles already recorded, so it only fires when a series exists.
     func autoFile(_ sessionID: String) async {
-        guard let store,
-              let name = try? await store.suggestedFolderName(for: sessionID),
-              !name.isEmpty else { return }
-        let existing = (try? await store.folders())?.first {
-            $0.name.compare(name, options: .caseInsensitive) == .orderedSame
-        }
-        var folder = existing
-        if folder == nil { folder = try? await store.createFolder(name) }
-        guard let folder else { return }
-        try? await store.move(sessionID, to: folder.id)
+        guard let store else { return }
+        let filed = try? await store.fileSession(sessionID)
         await refresh()
+        if let filed { lastFiled = "Filed under “\(filed.name)”" }
     }
 
     /// Looks a word up and finds every other line it appears in.
@@ -526,7 +523,11 @@ final class LibraryModel: ObservableObject {
     func rename(_ id: String, to title: String) async {
         guard let store else { return }
         try? await store.rename(id, to: title)
+        // Naming an episode is the moment we find out what it belongs to, so this is where
+        // it gets filed — not when recording started, when the title was still a timestamp.
+        let filed = try? await store.fileSession(id)
         await refresh()
+        if let filed { lastFiled = "Filed under “\(filed.name)”" }
     }
 
     func delete(_ id: String) async {
