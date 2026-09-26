@@ -39,7 +39,7 @@ struct LibraryView: View {
                 statusBar
             }
         })
-        .frame(minWidth: 900, minHeight: 560)
+        .frame(minWidth: 1040, minHeight: 600)
         // ⌘K. A hidden button is the dependable way to claim a shortcut in SwiftUI; the
         // palette then owns the keyboard while it is open.
         .background {
@@ -102,11 +102,11 @@ struct LibraryView: View {
 
                 OutlineGroup(model.folderTree, children: \.subfolders) { node in
                     Label {
-                        Text(node.folder.name).font(.system(size: 13.5))
+                        Text(node.folder.name).font(.system(size: 13))
                     } icon: {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13))
-                            .foregroundColor(.accentColor)
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.tint)
                             .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
                     }
                     .badge(node.totalSessions)
@@ -141,7 +141,7 @@ struct LibraryView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 210, ideal: 240, max: 300)
+        .navigationSplitViewColumnWidth(min: 235, ideal: 265, max: 340)
         // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
         // sidebar is collapsed and looks like a stray button. The window has its own
         // controls; this one is not wanted.
@@ -164,10 +164,10 @@ struct LibraryView: View {
     /// One sidebar row, at the size the rest of the sidebar uses.
     private func sidebarRow(_ title: String, symbol: String, tag: LibraryTarget) -> some View {
         Label {
-            Text(title).font(.system(size: 13.5))
+            Text(title).font(.system(size: 13))
         } icon: {
             Image(systemName: symbol)
-                .font(.system(size: 13))
+                .font(.system(size: 12.5))
                 .frame(width: Metrics.sidebarIconWidth, alignment: .leading)
         }
         .tag(tag)
@@ -226,6 +226,11 @@ struct LibraryView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
+        // The middle column is the same surface as the sidebar and the detail, rather than
+        // an opaque white sheet wedged between them.
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .background(.regularMaterial)
         .onChange(of: model.sessionSelection) { _, _ in
             Task { await model.syncSelectionToList() }
         }
@@ -624,7 +629,7 @@ private struct TokenizedLine: View {
             .contextMenu { lineMenu }
 
             VStack(alignment: .leading, spacing: 4) {
-                FlowLayout(spacing: 5, lineSpacing: 5) {
+                FlowLayout(spacing: 4.5, lineSpacing: 4) {
                     ForEach(Array(DictionaryLookup.words(in: cue.text).enumerated()), id: \.offset) { _, word in
                         WordToken(word: word, cue: cue, model: model)
                     }
@@ -682,10 +687,14 @@ private struct WordToken: View {
 
     var body: some View {
         Text(word)
-            .font(.system(size: 14))
-            .lineSpacing(Metrics.lineSpacing)
-            .padding(.horizontal, 2)
-            .padding(.vertical, 1)
+            // Sized and spaced so a line reads as a sentence rather than a row of chips:
+            // 15pt with real leading, and almost no padding, since the layout already puts
+            // a word space between tokens.
+            .font(.system(size: 15))
+            .lineSpacing(3)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 0.5)
+            .padding(.vertical, 1.5)
             .background(isInspected ? Color.accentColor.opacity(0.20) : .clear,
                         in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             .contentShape(Rectangle())
@@ -811,18 +820,22 @@ struct FolderPromptSheet: View {
 
 private struct WordCard: View {
     @ObservedObject var model: LibraryModel
-    @Environment(\.openURL) private var openURL
+    @State private var tab: WordCardTab = .dictionary
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let inspection = model.inspection {
                 heading(inspection)
                 Divider().padding(.vertical, 10)
-                if let entry = inspection.entry {
-                    senses(entry)
-                } else {
-                    missingEntry(inspection)
+                Picker("", selection: $tab) {
+                    ForEach(WordCardTab.allCases) { source in
+                        Text(source.title).tag(source)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.bottom, 10)
+                sourceBody
                 if !model.occurrences.isEmpty {
                     Divider().padding(.vertical, 10)
                     occurrences
@@ -832,10 +845,51 @@ private struct WordCard: View {
             }
         }
         .padding(16)
-        .frame(width: 360)
+        .frame(width: 380)
+        .task(id: tab) {
+            // Fetched on demand: the local tab never waits on the network, and a lookup that
+            // never leaves the Mac never touches it at all.
+            if tab == .online { await model.loadOnlineEntry() }
+        }
     }
 
-    // MARK: Header — the word, how to say it, and what it means in Chinese
+    @ViewBuilder
+    private var sourceBody: some View {
+        switch tab {
+        case .dictionary:
+            if let entry = model.inspection?.entry {
+                senses(entry)
+            } else {
+                note("This Mac has no entry for it.", detail: "The online tab may have one.")
+            }
+        case .online:
+            switch model.onlineState {
+            case .loading:
+                HStack(spacing: 7) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking it up…").font(.caption).foregroundStyle(.secondary)
+                }
+            case .ready:
+                if let entry = model.onlineEntry { senses(entry, showsPartOfSpeech: true) }
+            case .failed(let why):
+                note(why, detail: nil)
+            case .idle:
+                note("Not looked up yet.", detail: nil)
+            }
+        case .translation:
+            VStack(alignment: .leading, spacing: 5) {
+                if let gloss = model.inspection?.translation ?? model.glosses[model.inspection?.lemma ?? ""] {
+                    Text(gloss).font(.system(size: 15))
+                } else {
+                    HStack(spacing: 7) {
+                        ProgressView().controlSize(.small)
+                        Text("Translating…").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
 
     private func heading(_ inspection: WordInspection) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -843,9 +897,7 @@ private struct WordCard: View {
                 Text(inspection.entry?.headword ?? inspection.lemma)
                     .font(.system(size: 22, weight: .semibold))
                 if let phonetics = inspection.entry?.phonetics {
-                    Text("/\(phonetics)/")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                    Text("/\(phonetics)/").font(.system(size: 13)).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Button {
@@ -859,9 +911,7 @@ private struct WordCard: View {
 
             HStack(spacing: 8) {
                 if let gloss = inspection.translation ?? model.glosses[inspection.lemma] {
-                    Text(gloss)
-                        .font(.system(size: 17))
-                        .foregroundStyle(.primary)
+                    Text(gloss).font(.system(size: 17))
                 } else {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.small)
@@ -880,18 +930,14 @@ private struct WordCard: View {
         }
     }
 
-    // MARK: Body — the senses, definition first and the example under it
-
-    private func senses(_ entry: DictionaryEntry) -> some View {
+    private func senses(_ entry: DictionaryEntry, showsPartOfSpeech: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             ForEach(entry.senses.prefix(3)) { sense in
                 VStack(alignment: .leading, spacing: 2) {
-                    // The register note sits above rather than beside: beside, a long one
-                    // like "(past and past participle met)" halves the definition's width.
                     if let label = sense.label {
                         Text(label)
                             .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(showsPartOfSpeech ? .secondary : .tertiary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -910,16 +956,13 @@ private struct WordCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func missingEntry(_ inspection: WordInspection) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("This Mac has no dictionary entry for it.")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("Try an online source below.")
-                .font(.caption2).foregroundStyle(.tertiary)
+    private func note(_ message: String, detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(message).font(.caption).foregroundStyle(.secondary)
+            if let detail { Text(detail).font(.caption2).foregroundStyle(.tertiary) }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    // MARK: Where else it appears
 
     private var occurrences: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -952,8 +995,6 @@ private struct WordCard: View {
         }
     }
 
-    // MARK: Actions, including getting a better dictionary
-
     private func actions(_ inspection: WordInspection) -> some View {
         HStack(spacing: 10) {
             Button {
@@ -971,17 +1012,6 @@ private struct WordCard: View {
             }
             .controlSize(.small)
 
-            Menu {
-                ForEach(DictionaryLookup.onlineSources(for: inspection.lemma), id: \.0) { name, url in
-                    Button(name) { openURL(url) }
-                }
-            } label: {
-                Label("More", systemImage: "safari")
-            }
-            .menuStyle(.borderlessButton)
-            .controlSize(.small)
-            .fixedSize()
-
             Spacer(minLength: 0)
 
             Button {
@@ -992,6 +1022,21 @@ private struct WordCard: View {
             }
             .buttonStyle(.borderless)
             .help("Copy the word")
+        }
+    }
+}
+
+/// The card's sources, in the order they are worth reading.
+enum WordCardTab: String, CaseIterable, Identifiable {
+    case dictionary, online, translation
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dictionary:  return "Dictionary"
+        case .online:      return "Online"
+        case .translation: return "Chinese"
         }
     }
 }
@@ -1294,7 +1339,9 @@ final class LibraryWindow {
             created.title = "Live Subtitles Library"
             created.styleMask = [.titled, .closable, .resizable, .miniaturizable]
             created.isReleasedWhenClosed = false
-            created.setContentSize(NSSize(width: 1120, height: 700))
+            // Wide enough for three columns at their own minimums; narrower and the sidebar
+            // is squeezed until every label truncates.
+            created.setContentSize(NSSize(width: 1360, height: 780))
             WindowPlacement.center(created)
             window = created
         }

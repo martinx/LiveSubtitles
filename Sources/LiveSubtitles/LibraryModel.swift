@@ -65,6 +65,18 @@ struct NoteDraft: Identifiable {
 }
 
 /// What the translate button is doing, in a form the toolbar can show.
+enum OnlineDictionaryState: Equatable {
+    case idle
+    case loading
+    case ready
+    case failed(String)
+}
+
+enum TranslationScope {
+    case paragraphs
+    case words
+}
+
 /// What the window is pointed at.
 enum LibraryTarget: Hashable {
     case allSessions
@@ -138,11 +150,18 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var wantedWords: [String] = []
     /// Bumped to ask the view's `translationTask` to run; the session only exists inside it.
     @Published private(set) var translationRequestID = 0
+    /// What that run should cover. A word lookup must never drag the paragraphs with it —
+    /// looking a word up is not a request to translate the episode again.
+    @Published private(set) var translationScope: TranslationScope = .paragraphs
 
     // Word inspection: drives the popover anchored on the word itself, so the transcript
     // stays the interface instead of sending every gesture down to a panel.
     @Published private(set) var inspection: WordInspection?
     @Published private(set) var occurrences: [SearchHit] = []
+
+    // The card's second opinion, fetched only when asked for.
+    @Published private(set) var onlineEntry: DictionaryEntry?
+    @Published private(set) var onlineState: OnlineDictionaryState = .idle
 
     // The note being written.
     @Published var noteDraft: NoteDraft?
@@ -208,6 +227,7 @@ final class LibraryModel: ObservableObject {
             translations = [:]
         } else {
             translationPhase = .waiting
+            translationScope = .paragraphs
             translationRequestID += 1
         }
     }
@@ -245,6 +265,7 @@ final class LibraryModel: ObservableObject {
         guard glosses[lemma] == nil else { return }
         if !wantedWords.contains(lemma) { wantedWords.append(lemma) }
         if translationPhase == .off { translationPhase = .glossing }
+        translationScope = .words
         translationRequestID += 1
     }
 
@@ -253,7 +274,7 @@ final class LibraryModel: ObservableObject {
     /// line fragments, and results are keyed by paragraph index.
     @available(macOS 15.0, *)
     func runTranslation(paragraphs: [[Cue]], using session: TranslationSession) async {
-        let translatingParagraphs = translationOn && !paragraphs.isEmpty
+        let translatingParagraphs = translationScope == .paragraphs && translationOn && !paragraphs.isEmpty
         let words = wantedWords
         guard translatingParagraphs || !words.isEmpty else {
             translationPhase = .done
@@ -457,6 +478,23 @@ final class LibraryModel: ObservableObject {
     func clearInspection() {
         inspection = nil
         occurrences = []
+        onlineEntry = nil
+        onlineState = .idle
+    }
+
+    /// Fetches the online entry for whatever is being inspected. Runs on its own tab, so a
+    /// lookup that never leaves the Mac never touches the network.
+    func loadOnlineEntry() async {
+        guard let word = inspection?.lemma else { return }
+        if case .ready = onlineState { return }
+        onlineState = .loading
+        do {
+            onlineEntry = try await OnlineDictionary.lookup(word)
+            onlineState = .ready
+        } catch {
+            onlineEntry = nil
+            onlineState = .failed(error.localizedDescription)
+        }
     }
 
     // MARK: - Notes
@@ -504,7 +542,11 @@ final class LibraryModel: ObservableObject {
         selectedCueID = nil
         clearInspection()
         translations = [:]
-        if translationOn { translationPhase = .waiting; translationRequestID += 1 }
+        if translationOn {
+            translationPhase = .waiting
+            translationScope = .paragraphs
+            translationRequestID += 1
+        }
         guard let id = selectedSessionID else { cues = []; notes = []; return }
         try? await load(id)
     }
