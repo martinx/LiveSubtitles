@@ -1,5 +1,10 @@
 # The Study Window — design
 
+
+> What happens to a session after it stops — audio retention, speaker
+> separation, and the case for re-recognising with the whole file — is in
+> [`analysis-pipeline.md`](analysis-pipeline.md).
+
 Status: **proposal, not implemented**. Revision 2, after the first round of decisions.
 
 The overlay answers "what is being said right now". This is the other half: what to do
