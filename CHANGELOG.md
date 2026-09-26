@@ -6,12 +6,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- **Drag to reposition is now on by default.** The overlay window also hugs the caption
-  bar instead of reserving a tall empty rectangle above it, so an overlay you can drag no
-  longer leaves an invisible dead zone that swallows clicks meant for the video.
-
 ### Planned
 
 - Offline transcription of local files: pre-transcribe an episode with a batch model
@@ -19,6 +13,19 @@ All notable changes to this project are documented here. The format follows
 - Two-pass correction: re-decode each finished cue with a batch model and revise the
   committed line behind the live text.
 - Automatic recovery when the capture stream stops (display change, permission change).
+
+## [0.1.1] - 2026-09-26
+
+### Changed
+
+- **Drag to reposition is now on by default.** The overlay window also hugs the caption
+  bar instead of reserving a tall empty rectangle above it, so an overlay you can drag no
+  longer leaves an invisible dead zone that swallows clicks meant for the video.
+
+### Fixed
+
+- The release workflow no longer fails when no signing secrets are configured (a
+  step-level `if` cannot read `secrets`, and the zip was never packaged).
 
 ## [0.1.0] - 2026-09-26
 
