@@ -130,6 +130,19 @@ public actor HistoryStore {
             }
             try connection.setUserVersion(4)
         }
+        if connection.userVersion < 5 {
+            try connection.transaction {
+                // Lookups are cached: the system dictionary and the translation are both
+                // cheap individually, but they were being redone every time a word was opened
+                // again, and the translation is the slow half. Fetched once, kept.
+                try connection.execute("""
+                ALTER TABLE vocabulary ADD COLUMN definition TEXT;
+                ALTER TABLE vocabulary ADD COLUMN gloss TEXT;
+                ALTER TABLE vocabulary ADD COLUMN fetchedAt REAL;
+                """)
+            }
+            try connection.setUserVersion(5)
+        }
     }
 
     // MARK: - Sessions

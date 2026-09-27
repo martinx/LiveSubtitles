@@ -792,29 +792,58 @@ final class LibraryModel: ObservableObject {
         if let filed { lastFiled = "Filed under “\(filed.name)”" }
     }
 
-    /// Looks a word up and finds every other line it appears in.
+    /// Looks a word up, from the cache when it has been looked up before.
+    ///
+    /// The four sources are: the Mac's own dictionary (local, instant), the on-device
+    /// translation (local, slow the first time), and the transcript index (local, instant).
+    /// All of them used to be redone on every visit — the translation worst of all, since it
+    /// is the slow one. What they produce is now kept against the word.
     func inspect(_ word: String, in cue: Cue? = nil) async {
-        let lemma = DictionaryLookup.lemma(of: word)
-        guard let cue else {
-            inspection = WordInspection(word: word, lemma: lemma, cueID: nil,
-                                        entry: DictionaryLookup.parsedEntry(for: lemma)
-                                            ?? DictionaryLookup.parsedEntry(for: word))
-            occurrences = []
-            return
+        let lemma = DictionaryLookup.lemma(of: word).lowercased()
+        if let cue {
+            selectedCueID = cue.id
+            inspection = WordInspection(word: word, lemma: lemma, cueID: cue.id, entry: nil)
+        } else {
+            inspection = WordInspection(word: word, lemma: lemma, cueID: nil, entry: nil)
         }
-        selectedCueID = cue.id
-        // Reset the online tab: otherwise the second word looked up shows the first one's
-        // entry, because `loadOnlineEntry` returns early once the state is ready.
         onlineEntry = nil
         onlineState = .idle
-        inspection = WordInspection(word: word, lemma: lemma, cueID: cue.id,
-                                    entry: DictionaryLookup.parsedEntry(for: lemma)
-                                        ?? DictionaryLookup.parsedEntry(for: word))
-        inspection?.translation = nil
-        if let existing = glosses[lemma] { inspection?.translation = existing }
-        requestGloss(for: lemma)
-        guard let store else { occurrences = []; return }
-        occurrences = (try? await store.occurrences(of: lemma, excludingCue: cue.id)) ?? []
+
+        // 1. What is already known about this word.
+        var translation = glosses[lemma]
+        var cachedEntry: DictionaryEntry?
+        if let store, let cached = try? await store.cachedLookup(for: lemma) {
+            if let text = cached.definition { cachedEntry = DictionaryParser.parse(text) }
+            if let gloss = cached.gloss {
+                translation = gloss
+                glosses[lemma] = gloss
+            }
+        }
+        // 2. The Mac's dictionary, if the cache had nothing.
+        if cachedEntry == nil {
+            cachedEntry = DictionaryLookup.parsedEntry(for: lemma)
+                ?? DictionaryLookup.parsedEntry(for: word)
+        }
+        inspection?.entry = cachedEntry
+        inspection?.translation = translation
+
+        // 3. Translation, only when it is not already known.
+        if translation == nil { requestGloss(for: lemma) }
+
+        // 4. Where else it appears. Local and indexed, so it is always fresh.
+        if let store {
+            occurrences = (try? await store.occurrences(of: lemma, excludingCue: cue?.id)) ?? []
+        } else {
+            occurrences = []
+        }
+
+        // 5. Keep what was fetched, so the next visit costs nothing.
+        if cachedEntry != nil || translation != nil {
+            let text = cachedEntry.map { entry in
+                ([entry.partOfSpeech, entry.lead].compactMap { $0 }).joined(separator: " ")
+            }
+            try? await store?.cacheLookup(term: lemma, definition: text, gloss: translation)
+        }
     }
 
     func clearInspection() {

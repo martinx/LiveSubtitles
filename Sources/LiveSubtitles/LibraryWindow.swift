@@ -465,7 +465,8 @@ struct LibraryView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        if let gloss = model.glosses[card.term] ?? model.inspection?.translation {
+                        if let gloss = model.glosses[card.term.lowercased()]
+                            ?? model.inspection?.translation {
                             Text(gloss).font(.system(size: 20))
                         } else {
                             HStack(spacing: 7) {

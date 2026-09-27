@@ -146,3 +146,50 @@ extension HistoryStore {
         return Date().addingTimeInterval(days[index] * 24 * 60 * 60)
     }
 }
+
+// MARK: - Cached lookups
+
+/// What a word lookup produced, kept so the next visit is instant.
+public struct CachedLookup: Sendable, Hashable {
+    public let term: String
+    public let definition: String?
+    public let gloss: String?
+    public let fetchedAt: Date?
+}
+
+extension HistoryStore {
+    /// Everything cached about a word, if anything has been fetched.
+    public func cachedLookup(for term: String) throws -> CachedLookup? {
+        try connection.query("""
+            SELECT term, definition, gloss, fetchedAt FROM vocabulary WHERE term = ? COLLATE NOCASE;
+            """, [.text(term)]) { row in
+            CachedLookup(term: row.string(0),
+                         definition: row.isNull(1) ? nil : row.string(1),
+                         gloss: row.isNull(2) ? nil : row.string(2),
+                         fetchedAt: row.isNull(3) ? nil : Date(timeIntervalSince1970: row.double(3)))
+        }.first
+    }
+
+    /// Stores a lookup. Separate from `recordReview`, which changes the schedule rather than
+    /// the content.
+    public func cacheLookup(term: String,
+                            definition: String?,
+                            gloss: String?,
+                            occurrenceCount: Int? = nil) throws {
+        let key = term.lowercased()
+        try connection.run("""
+            INSERT INTO vocabulary (term, familiarity, dueAt, reviewCount, updatedAt,
+                                    definition, gloss, fetchedAt)
+            VALUES (?, 0, NULL, 0, ?, ?, ?, ?)
+            ON CONFLICT(term) DO UPDATE SET
+                definition = COALESCE(excluded.definition, vocabulary.definition),
+                gloss      = COALESCE(excluded.gloss, vocabulary.gloss),
+                fetchedAt  = excluded.fetchedAt;
+            """, [.text(key),
+                  .double(Date().timeIntervalSince1970),
+                  definition.map { SQLValue.text($0) } ?? .null,
+                  gloss.map { SQLValue.text($0) } ?? .null,
+                  .double(Date().timeIntervalSince1970)])
+        _ = occurrenceCount
+    }
+}

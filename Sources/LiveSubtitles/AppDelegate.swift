@@ -496,6 +496,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func showAbout() {
+        // TEMP-PROBE
+        if ProcessInfo.processInfo.environment["LIVESUBTITLES_TEST_LIVE"] != nil {
+            Task {
+                libraryModel.attach(controller?.historyStore())
+                try? await Task.sleep(for: .seconds(2))
+                let started = Date()
+                await libraryModel.inspect("consent")
+                print("[probe] first lookup: \(String(format: "%.2f", Date().timeIntervalSince(started)))s")
+                try? await Task.sleep(for: .seconds(6))
+                let again = Date()
+                await libraryModel.inspect("consent")
+                print("[probe] second lookup: \(String(format: "%.2f", Date().timeIntervalSince(again)))s")
+                print("[probe] gloss=\(libraryModel.inspection?.translation ?? "nil") entry=\(libraryModel.inspection?.entry?.lead ?? "nil")")
+            }
+        }
+    }
+
+    @objc private func showAboutOriginal() {
         aboutWindow.show { [weak self] in self?.showWelcome() }
     }
 
