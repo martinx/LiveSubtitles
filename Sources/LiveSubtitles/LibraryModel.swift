@@ -170,6 +170,29 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var vocabulary: [VocabularyEntry] = []
     @Published private(set) var vocabularyCards: [VocabularyCard] = []
 
+    /// The word whose detail is on screen in the Vocabulary section.
+    @Published var selectedVocabularyTerm: String?
+
+    func selectVocabulary(_ term: String?) async {
+        selectedVocabularyTerm = term
+        guard let term else { clearInspection(); return }
+        await inspect(term)
+    }
+
+    /// Moves to the neighbouring word. Wraps, because a list of twelve words should not
+    /// dead-end at either end.
+    func stepVocabulary(_ delta: Int) async {
+        guard !vocabularyCards.isEmpty else { return }
+        let index = vocabularyCards.firstIndex { $0.term == selectedVocabularyTerm }
+        let next: Int
+        if let index {
+            next = (index + delta + vocabularyCards.count) % vocabularyCards.count
+        } else {
+            next = delta >= 0 ? 0 : vocabularyCards.count - 1
+        }
+        await selectVocabulary(vocabularyCards[next].term)
+    }
+
     // The review session.
     @Published private(set) var reviewQueue: [VocabularyCard] = []
     @Published private(set) var reviewIndex = 0

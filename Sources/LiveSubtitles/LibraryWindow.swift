@@ -382,7 +382,8 @@ struct LibraryView: View {
 
     /// The vocabulary, with its review state and a way in to reviewing it.
     private var vocabularyList: some View {
-        List {
+        List(selection: Binding(get: { model.selectedVocabularyTerm },
+                                set: { term in Task { await model.selectVocabulary(term) } })) {
             if model.dueCount > 0 {
                 Button {
                     Task { await model.startReview() }
@@ -414,12 +415,123 @@ struct LibraryView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.vertical, 1)
+                .tag(card.term)
             }
 
             if model.vocabularyCards.isEmpty {
                 Text("No vocabulary yet. Double-click a word in the transcript.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+        }
+        // The same surface as the session list; without it this column stayed an opaque
+        // white sheet between two vibrant ones.
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        .background(.regularMaterial)
+        .onAppear {
+            if model.selectedVocabularyTerm == nil {
+                Task { await model.stepVocabulary(1) }
+            }
+        }
+    }
+
+    /// The word on screen: what it means, where it was said, and a way to walk the list.
+    @ViewBuilder
+    private var vocabularyDetail: some View {
+        if let card = model.vocabularyCards.first(where: { $0.term == model.selectedVocabularyTerm }) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(card.term).font(.system(size: 26, weight: .semibold))
+                    Text(card.state)
+                        .font(.caption)
+                        .foregroundStyle(card.isDue ? Color.accentColor : .secondary)
+                        .padding(.horizontal, 6).padding(.vertical, 1)
+                        .background(.quaternary, in: Capsule())
+                    Spacer()
+                    Button { Task { await model.stepVocabulary(-1) } } label: {
+                        Image(systemName: "chevron.left")
+                    }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.leftArrow, modifiers: .command)
+                    .help("Previous word (⌘←)")
+                    Button { Task { await model.stepVocabulary(1) } } label: {
+                        Image(systemName: "chevron.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.rightArrow, modifiers: .command)
+                    .help("Next word (⌘→)")
+                }
+                .padding(.bottom, 14)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if let gloss = model.glosses[card.term] ?? model.inspection?.translation {
+                            Text(gloss).font(.system(size: 20))
+                        } else {
+                            HStack(spacing: 7) {
+                                ProgressView().controlSize(.small)
+                                Text("Translating…").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+
+                        if let entry = model.inspection?.entry {
+                            VStack(alignment: .leading, spacing: 8) {
+                                if let phonetics = entry.phonetics {
+                                    Text("/\(phonetics)/").font(.system(size: 13)).foregroundStyle(.secondary)
+                                }
+                                ForEach(entry.senses.prefix(3)) { sense in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(sense.definition).font(.system(size: 13.5))
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        if let example = sense.example {
+                                            Text("“\(example)”").font(.system(size: 12))
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if !model.occurrences.isEmpty {
+                            Divider()
+                            Text("Said in \(model.occurrences.count) line\(model.occurrences.count == 1 ? "" : "s")")
+                                .font(.caption).foregroundStyle(.secondary)
+                            ForEach(model.occurrences.prefix(6)) { hit in
+                                Button {
+                                    Task { await model.select(hit.sessionID) }
+                                    model.selectedCueID = hit.cue.id
+                                } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        Text(hit.cue.timestamp)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .foregroundStyle(.tertiary)
+                                        Text(hit.cue.text)
+                                            .font(.system(size: 13))
+                                            .multilineTextAlignment(.leading)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                        Spacer(minLength: 0)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        Divider()
+                        HStack(spacing: 10) {
+                            Button("Review Now") {
+                                Task { await model.startReview() }
+                            }
+                            .controlSize(.small)
+                            Spacer()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(Metrics.panePadding)
+        } else {
+            placeholder("Pick a word", "The vocabulary list is on the left.")
         }
     }
 
@@ -517,6 +629,8 @@ struct LibraryView: View {
             reader
         case .section(.statistics):
             statisticsPane
+        case .section(.vocabulary):
+            vocabularyDetail
         case .section(.writing):
             placeholder("Writing",
                         "Summaries and graded practice, once the local model is in.")
