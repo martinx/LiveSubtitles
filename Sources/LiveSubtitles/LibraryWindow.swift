@@ -26,6 +26,19 @@ struct LibraryView: View {
     @Environment(\.colorScheme) private var colorScheme
     private var theme: ReadingTheme { ReadingTheme(scheme: colorScheme) }
 
+    /// What the enhanced switch has to say for itself.
+    ///
+    /// It reads as broken when it does nothing, and on a session the analysis has not reached
+    /// there is nothing for it to do — so it says so instead.
+    private var enhancedHelp: String {
+        guard model.hasEnhancedContent else {
+            return "Nothing enhanced in this session yet — the speaker pass runs after a session ends"
+        }
+        return model.showsEnhanced
+            ? "Showing the enhanced reading — speakers and translation"
+            : "Showing the raw transcript"
+    }
+
     /// The palette's key comes from the settings, like the menu's do.
     private var paletteKeyEquivalent: KeyEquivalent {
         guard let shortcut = model.paletteShortcut,
@@ -433,9 +446,8 @@ struct LibraryView: View {
                     model.toggleTranslation()
                 }
                 ToolbarIconButton(symbol: model.showsEnhanced ? "wand.and.stars" : "doc.plaintext",
-                                  help: model.showsEnhanced
-                                      ? "Showing the enhanced reading — speakers included"
-                                      : "Showing the raw transcript") {
+                                  help: enhancedHelp,
+                                  enabled: model.hasEnhancedContent) {
                     model.showsEnhanced.toggle()
                 }
                 ToolbarIconButton(symbol: "note.text", help: "Write a note about this session") {
@@ -515,7 +527,11 @@ struct LibraryView: View {
                                                    notes: model.notesByCue[cue.id] ?? [])
                                         .id(cue.id)
                                 }
-                                if model.paragraphTranslationOn,
+                                // Part of the enhanced layer, so the switch hides it too:
+                                // leaving it out meant turning the layer off left the Chinese
+                                // sitting there, which reads as the switch not working.
+                                if model.showsEnhanced,
+                                   model.paragraphTranslationOn,
                                    let translation = model.translations[index] {
                                     TranslationLine(text: translation)
                                 }

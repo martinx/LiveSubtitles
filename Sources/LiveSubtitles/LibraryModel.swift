@@ -222,6 +222,12 @@ final class LibraryModel: ObservableObject {
     /// the re-recognised text. Off shows exactly what the live pass heard.
     @Published var showsEnhanced = true
 
+    /// Whether this session has an enhanced layer at all. False before the analysis has run
+    /// and before anything has been translated, which is when the switch has nothing to do.
+    var hasEnhancedContent: Bool {
+        !sessionSpeakers.isEmpty || !translations.isEmpty
+    }
+
     /// Speakers seen in the open session, in the order they first appear, so the chips can be
     /// coloured consistently down the page.
     var sessionSpeakers: [String] {
