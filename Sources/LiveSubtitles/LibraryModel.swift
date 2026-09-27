@@ -168,6 +168,15 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var notebook: [NoteWithSession] = []
     @Published private(set) var favourites: [NoteWithSession] = []
     @Published private(set) var vocabulary: [VocabularyEntry] = []
+    @Published private(set) var vocabularyCards: [VocabularyCard] = []
+
+    // The review session.
+    @Published private(set) var reviewQueue: [VocabularyCard] = []
+    @Published private(set) var reviewIndex = 0
+    @Published var isReviewing = false
+    /// Set after grading, to show the answer and the context before moving on.
+    @Published private(set) var lastReviewed: VocabularyCard?
+    @Published private(set) var reviewContext: String?
     @Published private(set) var statistics = LibraryStatistics()
 
     /// Mirrors the appearance setting so the view can apply it.
@@ -221,6 +230,109 @@ final class LibraryModel: ObservableObject {
     /// Whether the reader shows the enhanced layer — currently the speaker labels, and later
     /// the re-recognised text. Off shows exactly what the live pass heard.
     @Published var showsEnhanced = true
+    /// True while the analysis is running, so the toolbar can say so.
+    @Published private(set) var isAnalysing = false
+    /// One line about what the analysis just did, shown in the status bar.
+    @Published var analysisNote: String?
+
+    // MARK: - Review
+
+    var dueCount: Int { vocabularyCards.filter(\.isDue).count }
+
+    var currentCard: VocabularyCard? {
+        reviewQueue.indices.contains(reviewIndex) ? reviewQueue[reviewIndex] : nil
+    }
+
+    var reviewProgress: String {
+        reviewQueue.isEmpty ? "" : "\(reviewIndex + 1) of \(reviewQueue.count)"
+    }
+
+    func startReview() async {
+        guard let store, let queue = try? await store.dueVocabulary(limit: 20), !queue.isEmpty else {
+            reviewContext = nil
+            return
+        }
+        reviewQueue = queue
+        reviewIndex = 0
+        lastReviewed = nil
+        isReviewing = true
+        await loadContext(for: queue[0])
+    }
+
+    /// Grades the card on screen and moves to the next.
+    func grade(_ grade: ReviewGrade) async {
+        guard let store, let card = currentCard else { return }
+        try? await store.recordReview(term: card.term, grade: grade)
+        lastReviewed = card
+        if reviewIndex + 1 < reviewQueue.count {
+            reviewIndex += 1
+            if let next = currentCard { await loadContext(for: next) }
+        } else {
+            isReviewing = false
+            reviewQueue = []
+        }
+        await refreshDerived()
+    }
+
+    func endReview() {
+        isReviewing = false
+        reviewQueue = []
+        reviewIndex = 0
+        lastReviewed = nil
+        reviewContext = nil
+    }
+
+    /// One line the word actually appeared in, so the card is answered from the episode
+    /// rather than from a dictionary.
+    private func loadContext(for card: VocabularyCard) async {
+        guard let store else { reviewContext = nil; return }
+        reviewContext = (try? await store.occurrences(of: card.term, excludingCue: nil, limit: 1))?
+            .first?.cue.text
+    }
+
+    /// Runs the analysis over the session on screen, if it has not run yet.
+    ///
+    /// This is what the enhanced switch does when there is nothing to switch: the recording is
+    /// on disk, so the work can simply be done now rather than waiting for a session that ends
+    /// after the feature exists.
+    func analyseSelectedSession() async {
+        guard let store, let id = selectedSessionID else { return }
+        // The recording lives beside the database under a name derived from the session id, so
+        // it needs no column read; whether it is still there is the only question.
+        guard let url = try? SessionRecorder.url(for: id),
+              FileManager.default.fileExists(atPath: url.path) else {
+            analysisNote = "This session has no recording to analyse."
+            return
+        }
+
+        isAnalysing = true
+        analysisNote = "Analysing…"
+        defer { isAnalysing = false }
+        do {
+            let labelled = try await SessionAnalyzer.shared.analyze(
+                sessionID: id, audioURL: url, store: store)
+            analysisNote = labelled > 0
+                ? "Labelled \(labelled) lines"
+                : "No speech found to separate"
+            try? await load(id)
+        } catch {
+            analysisNote = error.localizedDescription
+        }
+    }
+
+    /// The switch's whole behaviour, in one place.
+    ///
+    /// Always does something: leaving the translated view, running the analysis if it has
+    /// never run here, and otherwise showing or hiding what it produced.
+    func toggleEnhancedView() async {
+        if paragraphTranslationOn { toggleTranslation() }
+        if hasEnhancedContent {
+            showsEnhanced.toggle()
+        } else {
+            await analyseSelectedSession()
+            showsEnhanced = true
+        }
+    }
 
     /// Whether this session has an enhanced layer at all. False before the analysis has run
     /// and before anything has been translated, which is when the switch has nothing to do.
@@ -463,9 +575,12 @@ final class LibraryModel: ObservableObject {
             folderTree = try await store.folderTree()
             listedSessions = try await sessionsForTarget()
                 listedSessions = try await sessionsForTarget()
-            notebook = try await store.notes()
+            // Only authored notes. It used to read every note, which is why a saved word
+            // appeared in the notebook as well as in the vocabulary.
+            notebook = try await store.notes(kind: .note)
             favourites = try await store.notes(kind: .favourite)
             vocabulary = try await store.vocabulary()
+        vocabularyCards = try await store.vocabularyCards()
             statistics = try await store.statistics()
             // Prefer a session that actually has something in it, so the window does not
             // open on the empty one a just-started run leaves behind.
@@ -806,9 +921,10 @@ final class LibraryModel: ObservableObject {
 
     private func refreshDerived() async {
         guard let store else { return }
-        notebook = (try? await store.notes()) ?? []
+        notebook = (try? await store.notes(kind: .note)) ?? []
         favourites = (try? await store.notes(kind: .favourite)) ?? []
         vocabulary = (try? await store.vocabulary()) ?? []
+        vocabularyCards = (try? await store.vocabularyCards()) ?? []
         statistics = (try? await store.statistics()) ?? LibraryStatistics()
     }
 

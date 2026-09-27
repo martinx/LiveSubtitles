@@ -31,12 +31,13 @@ struct LibraryView: View {
     /// It reads as broken when it does nothing, and on a session the analysis has not reached
     /// there is nothing for it to do — so it says so instead.
     private var enhancedHelp: String {
-        guard model.hasEnhancedContent else {
-            return "Nothing enhanced in this session yet — the speaker pass runs after a session ends"
+        if model.isAnalysing { return "Analysing this session's audio…" }
+        if model.hasEnhancedContent {
+            return model.showsEnhanced
+                ? "Showing the enhanced reading — speakers and translation"
+                : "Showing the raw transcript"
         }
-        return model.showsEnhanced
-            ? "Showing the enhanced reading — speakers and translation"
-            : "Showing the raw transcript"
+        return "Analyse this session and show the enhanced reading"
     }
 
     /// The palette's key comes from the settings, like the menu's do.
@@ -100,6 +101,9 @@ struct LibraryView: View {
         }
         .onChange(of: model.searchFocusRequestID) { _, _ in
             searchFocused = true
+        }
+        .sheet(isPresented: $model.isReviewing) {
+            ReviewSession(model: model)
         }
         .sheet(item: $model.noteDraft) { draft in
             NoteEditor(model: model, draft: draft)
@@ -376,23 +380,43 @@ struct LibraryView: View {
         }
     }
 
+    /// The vocabulary, with its review state and a way in to reviewing it.
     private var vocabularyList: some View {
         List {
-            ForEach(model.vocabulary) { entry in
-                HStack {
+            if model.dueCount > 0 {
+                Button {
+                    Task { await model.startReview() }
+                } label: {
+                    Label("Review \(model.dueCount) due", systemImage: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.accentColor)
+                .padding(.vertical, 2)
+            }
+
+            ForEach(model.vocabularyCards) { card in
+                HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.term)
-                        if let gloss = model.glosses[entry.term] {
-                            Text(gloss).font(.caption).foregroundStyle(.secondary)
+                        Text(card.term)
+                        HStack(spacing: 6) {
+                            Text(card.state)
+                                .font(.caption2)
+                                .foregroundStyle(card.isDue
+                                                 ? AnyShapeStyle(Color.accentColor)
+                                                 : AnyShapeStyle(.tertiary))
+                            if card.occurrences > 1 {
+                                Text("· \(card.occurrences) lines")
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
                         }
                     }
-                    Spacer()
-                    if entry.count > 1 {
-                        Text("×\(entry.count)").font(.caption).foregroundStyle(.tertiary)
-                    }
+                    Spacer(minLength: 0)
                 }
+                .padding(.vertical, 1)
             }
-            if model.vocabulary.isEmpty {
+
+            if model.vocabularyCards.isEmpty {
                 Text("No vocabulary yet. Double-click a word in the transcript.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -445,10 +469,13 @@ struct LibraryView: View {
                                   help: model.translationPhase.label) {
                     model.toggleTranslation()
                 }
-                ToolbarIconButton(symbol: model.showsEnhanced ? "wand.and.stars" : "doc.plaintext",
+                // Always enabled. Disabling it was the wrong answer to "nothing to show":
+                // the recording is on disk, so the useful thing is to do the work.
+                ToolbarIconButton(symbol: model.isAnalysing ? "hourglass"
+                                      : (model.showsEnhanced ? "wand.and.stars" : "doc.plaintext"),
                                   help: enhancedHelp,
-                                  enabled: model.hasEnhancedContent) {
-                    model.showsEnhanced.toggle()
+                                  enabled: !model.isAnalysing) {
+                    Task { await model.toggleEnhancedView() }
                 }
                 ToolbarIconButton(symbol: "note.text", help: "Write a note about this session") {
                     model.beginNote(cue: model.selectedCue)
@@ -711,6 +738,10 @@ struct LibraryView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let note = model.analysisNote {
+                Label(note, systemImage: "wand.and.stars")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
             if let filed = model.lastFiled {
                 Label(filed, systemImage: "folder.badge.checkmark")
                     .font(.caption)
@@ -962,6 +993,86 @@ struct FolderPromptSheet: View {
         let name = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         onCommit(name)
+    }
+}
+
+// MARK: - Review
+
+/// Working through the words that are due.
+///
+/// One card at a time, answered from the episode rather than from a dictionary: the sentence
+/// the word came from is on the card, so recalling it means recalling it in context.
+private struct ReviewSession: View {
+    @ObservedObject var model: LibraryModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Image(systemName: "sparkles").foregroundStyle(.secondary)
+                Text("Review").font(.headline)
+                Spacer()
+                Text(model.reviewProgress).font(.caption).foregroundStyle(.secondary)
+                Button("Done") { model.endReview() }
+                    .buttonStyle(.borderless)
+                    .padding(.leading, 8)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if let card = model.currentCard {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let context = model.reviewContext {
+                        Text(context)
+                            .font(.system(size: 15.5))
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(.primary)
+                    }
+
+                    Text(card.term)
+                        .font(.system(size: 26, weight: .semibold))
+
+                    if let gloss = model.glosses[card.term] {
+                        Text(gloss).font(.system(size: 17)).foregroundStyle(.secondary)
+                    } else if let entry = DictionaryLookup.parsedEntry(for: card.term) {
+                        Text(entry.lead ?? "")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+            }
+
+            Divider()
+
+            // Four answers, not two: "hard" and "easy" are what make the schedule fit the word
+            // rather than the calendar.
+            HStack(spacing: 8) {
+                ForEach(ReviewGrade.allCases, id: \.self) { grade in
+                    Button(title(for: grade)) {
+                        Task { await model.grade(grade) }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(18)
+        }
+        .frame(width: 560)
+    }
+
+    private func title(for grade: ReviewGrade) -> String {
+        switch grade {
+        case .forgot: return "Forgot"
+        case .hard:   return "Hard"
+        case .good:   return "Good"
+        case .easy:   return "Easy"
+        }
     }
 }
 

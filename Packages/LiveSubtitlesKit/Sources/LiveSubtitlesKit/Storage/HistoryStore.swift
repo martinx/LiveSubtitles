@@ -114,6 +114,22 @@ public actor HistoryStore {
             }
             try connection.setUserVersion(3)
         }
+        if connection.userVersion < 4 {
+            try connection.transaction {
+                // Review state per word rather than per note: the same word saved from two
+                // episodes is one thing to learn, not two.
+                try connection.execute("""
+                CREATE TABLE IF NOT EXISTS vocabulary (
+                    term        TEXT PRIMARY KEY COLLATE NOCASE,
+                    familiarity INTEGER NOT NULL DEFAULT 0,
+                    dueAt       REAL,
+                    reviewCount INTEGER NOT NULL DEFAULT 0,
+                    updatedAt   REAL NOT NULL
+                );
+                """)
+            }
+            try connection.setUserVersion(4)
+        }
     }
 
     // MARK: - Sessions
