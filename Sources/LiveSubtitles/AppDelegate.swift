@@ -490,6 +490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openLibrary() {
         libraryModel.appearance = controller?.settings.preferredScheme
         libraryModel.paletteShortcut = controller?.settings.paletteShortcut
+        libraryModel.applyReadingFont(controller?.settings.readingFont ?? "system")
         libraryModel.attach(controller?.historyStore())
         libraryWindow.show(model: libraryModel)
     }

@@ -26,6 +26,7 @@ final class Settings: ObservableObject {
         static let draggable = "draggable"
         static let showInDock = "showInDock"
         static let appearance = "appearance"
+        static let readingFont = "readingFont"
         static let startAtLaunch = "startAtLaunch"
         static let startShortcut = "startShortcut"
         static let pauseShortcut = "pauseShortcut"
@@ -72,6 +73,11 @@ final class Settings: ObservableObject {
 
     /// "system", "light" or "dark". Applied with `preferredColorScheme`, so every window —
     /// the library, the settings, the overlay — follows it together.
+    /// The transcript's typeface. "system" is SF, Apple's own.
+    @Published var readingFont: String {
+        didSet { defaults.set(readingFont, forKey: Key.readingFont) }
+    }
+
     @Published var appearance: String {
         didSet { defaults.set(appearance, forKey: Key.appearance) }
     }
@@ -153,6 +159,7 @@ final class Settings: ObservableObject {
             Key.draggable: true,
             Key.showInDock: false,
             Key.appearance: "system",
+            Key.readingFont: "system",
             Key.startAtLaunch: true,
             Key.startShortcut: KeyShortcut.defaultStart.storage,
             Key.pauseShortcut: KeyShortcut.defaultPause.storage,
@@ -183,6 +190,7 @@ final class Settings: ObservableObject {
         draggable = defaults.bool(forKey: Key.draggable)
         showInDock = defaults.bool(forKey: Key.showInDock)
         appearance = defaults.string(forKey: Key.appearance) ?? "system"
+        readingFont = defaults.string(forKey: Key.readingFont) ?? "system"
         startAtLaunch = defaults.bool(forKey: Key.startAtLaunch)
         startShortcut = Self.loadShortcut(defaults, Key.startShortcut)
         pauseShortcut = Self.loadShortcut(defaults, Key.pauseShortcut)

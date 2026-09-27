@@ -204,6 +204,16 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 240)
             }
+            Divider()
+            Row("Transcript font") {
+                Picker("", selection: $settings.readingFont) {
+                    ForEach(ReadingFont.allCases) { face in
+                        Text(face.title).tag(face.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 200)
+            }
         }
 
         SettingsCard("Overlay", symbol: "rectangle.on.rectangle",

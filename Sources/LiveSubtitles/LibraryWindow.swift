@@ -760,7 +760,7 @@ private struct TranscriptLine: View {
                         SpeakerChip(speaker: speaker,
                                     index: model.sessionSpeakers.firstIndex(of: speaker))
                     }
-                    FlowLayout(spacing: 4.6, lineSpacing: Reading.bodyLeading) {
+                    FlowLayout(spacing: model.wordSpacing, lineSpacing: Reading.bodyLeading) {
                         ForEach(Array(DictionaryLookup.words(in: cue.text).enumerated()),
                                 id: \.offset) { _, word in
                             WordToken(word: word, cue: cue, model: model)
@@ -828,7 +828,7 @@ private struct WordToken: View {
             // Set at reading size with no padding of its own: the flow layout already puts a
             // word space between tokens, and adding to it made a sentence look like a row of
             // chips rather than prose.
-            .font(.system(size: Reading.bodySize))
+            .font(model.readingFont.font(size: Reading.bodySize))
             .foregroundStyle(theme.text)
             .padding(.vertical, 0.5)
             .background(isInspected ? theme.selection : .clear,
@@ -1362,7 +1362,7 @@ private struct TranslationLine: View {
                 .fill(Color.accentColor.opacity(0.35))
                 .frame(width: 2)
             Text(text)
-                .font(.system(size: Reading.translationSize))
+                .font(ReadingFont.system.font(size: Reading.translationSize))
                 .lineSpacing(Reading.translationLeading)
                 .foregroundStyle(ReadingTheme(scheme: colorScheme).translation)
                 .textSelection(.enabled)

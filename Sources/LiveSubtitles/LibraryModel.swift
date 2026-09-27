@@ -173,6 +173,19 @@ final class LibraryModel: ObservableObject {
     /// Mirrors the appearance setting so the view can apply it.
     @Published var appearance: ColorScheme?
 
+    /// The transcript's typeface, from the appearance settings.
+    @Published var readingFont: ReadingFont = .system
+
+    /// The gap the flow layout must leave between words: a real space in the chosen face, not
+    /// a constant. Set when the font changes so the layout is not recomputing it per line.
+    @Published private(set) var wordSpacing: CGFloat = Reading.bodySize * 0.26
+
+    func applyReadingFont(_ value: String) {
+        let font = ReadingFont(rawValue: value) ?? .system
+        readingFont = font
+        wordSpacing = font.spaceWidth(atSize: Reading.bodySize)
+    }
+
     /// Mirrors the palette's key so the view can bind it.
     @Published var paletteShortcut: KeyShortcut?
 

@@ -13,6 +13,57 @@
 
 import SwiftUI
 
+/// The typeface the transcript is set in.
+///
+/// Apple's own faces first, which is why the default is not a font name at all: SF is reached
+/// through `design: .default` rather than by name, and so are New York and SF Mono. The named
+/// ones below all ship with macOS.
+enum ReadingFont: String, CaseIterable, Identifiable {
+    case system, serif, mono, rounded, charter, georgia
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system:  return "System (SF)"
+        case .serif:   return "New York"
+        case .mono:    return "SF Mono"
+        case .rounded: return "Rounded"
+        case .charter: return "Charter"
+        case .georgia: return "Georgia"
+        }
+    }
+
+    func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        switch self {
+        case .system:  return .system(size: size, weight: weight, design: .default)
+        case .serif:   return .system(size: size, weight: weight, design: .serif)
+        case .mono:    return .system(size: size, weight: weight, design: .monospaced)
+        case .rounded: return .system(size: size, weight: weight, design: .rounded)
+        case .charter: return .custom("Charter", size: size)
+        case .georgia: return .custom("Georgia", size: size)
+        }
+    }
+
+    /// The width of a single space in this face, which is what the reader must put between
+    /// words. The flow layout renders each word as its own view, so the gap is a number rather
+    /// than a glyph — and a number guessed wrong makes prose read as a row of tokens.
+    func spaceWidth(atSize size: CGFloat) -> CGFloat {
+        let font: NSFont
+        switch self {
+        case .system:  font = NSFont.systemFont(ofSize: size)
+        case .serif:   font = NSFont(descriptor: NSFont.systemFont(ofSize: size)
+                                        .fontDescriptor.withDesign(.serif) ?? NSFont.systemFont(ofSize: size).fontDescriptor,
+                                     size: size) ?? NSFont.systemFont(ofSize: size)
+        case .mono:    font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        case .rounded: font = NSFont.systemFont(ofSize: size)
+        case .charter: font = NSFont(name: "Charter", size: size) ?? NSFont.systemFont(ofSize: size)
+        case .georgia: font = NSFont(name: "Georgia", size: size) ?? NSFont.systemFont(ofSize: size)
+        }
+        return (" " as NSString).size(withAttributes: [.font: font]).width
+    }
+}
+
 enum Reading {
     // MARK: - Measure
     //
