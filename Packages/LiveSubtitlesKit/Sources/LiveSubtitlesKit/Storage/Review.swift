@@ -176,6 +176,12 @@ extension HistoryStore {
                             definition: String?,
                             gloss: String?,
                             occurrenceCount: Int? = nil) throws {
+        // An empty string is not a lookup result. Storing one overwrote a good definition with
+        // nothing, and because COALESCE treats "" as a value it kept overwriting it — a
+        // debugging probe managed to poison the cache for a word this way.
+        let definition = definition?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let gloss = gloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard definition?.isEmpty == false || gloss?.isEmpty == false else { return }
         let key = term.lowercased()
         try connection.run("""
             INSERT INTO vocabulary (term, familiarity, dueAt, reviewCount, updatedAt,
@@ -187,8 +193,8 @@ extension HistoryStore {
                 fetchedAt  = excluded.fetchedAt;
             """, [.text(key),
                   .double(Date().timeIntervalSince1970),
-                  definition.map { SQLValue.text($0) } ?? .null,
-                  gloss.map { SQLValue.text($0) } ?? .null,
+                  definition.flatMap { $0.isEmpty ? nil : SQLValue.text($0) } ?? .null,
+                  gloss.flatMap { $0.isEmpty ? nil : SQLValue.text($0) } ?? .null,
                   .double(Date().timeIntervalSince1970)])
         _ = occurrenceCount
     }

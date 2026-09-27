@@ -839,10 +839,15 @@ final class LibraryModel: ObservableObject {
 
         // 5. Keep what was fetched, so the next visit costs nothing.
         if cachedEntry != nil || translation != nil {
-            let text = cachedEntry.map { entry in
-                ([entry.partOfSpeech, entry.lead].compactMap { $0 }).joined(separator: " ")
-            }
-            try? await store?.cacheLookup(term: lemma, definition: text, gloss: translation)
+            // The raw dictionary text, not a summary of it. The cache is read back through
+            // the same parser that produced the entry, and a parser handed its own summary
+            // finds no senses in it — which is exactly what happened: the definition was
+            // stored correctly and came back empty on every visit.
+            let raw = cachedEntry == nil
+                ? nil
+                : DictionaryLookup.rawEntry(for: lemma) ?? DictionaryLookup.rawEntry(for: word)
+            let storeable = (raw?.isEmpty == false) ? raw : nil
+            try? await store?.cacheLookup(term: lemma, definition: storeable, gloss: translation)
         }
     }
 
