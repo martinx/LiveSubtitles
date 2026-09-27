@@ -368,6 +368,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         viewMenu.addItem(checkable("Drag to Reposition", #selector(toggleDraggable),
                                    on: controller?.settings.draggable ?? false))
         viewMenu.addItem(.separator())
+        viewMenu.addItem(checkable("Follow the System Appearance", #selector(appearanceSystem),
+                                   on: controller?.settings.appearance == "system"))
+        viewMenu.addItem(checkable("Light", #selector(appearanceLight),
+                                   on: controller?.settings.appearance == "light"))
+        viewMenu.addItem(checkable("Dark", #selector(appearanceDark),
+                                   on: controller?.settings.appearance == "dark"))
+        viewMenu.addItem(.separator())
         viewMenu.addItem(checkable("Check for Updates Automatically", #selector(toggleAutoUpdate),
                                    on: controller?.settings.checkForUpdates ?? false))
         viewMenu.addItem(.separator())
@@ -445,6 +452,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installMainMenu()
     }
 
+    @objc private func appearanceSystem() { setAppearance("system") }
+    @objc private func appearanceLight() { setAppearance("light") }
+    @objc private func appearanceDark() { setAppearance("dark") }
+
+    private func setAppearance(_ value: String) {
+        controller?.settings.appearance = value
+        libraryModel.appearance = controller?.settings.preferredScheme
+        installMainMenu()
+    }
+
     @objc private func toggleAutoUpdate() {
         controller?.settings.checkForUpdates.toggle()
         installMainMenu()
@@ -455,6 +472,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openLibrary() {
+        libraryModel.appearance = controller?.settings.preferredScheme
         libraryModel.attach(controller?.historyStore())
         libraryWindow.show(model: libraryModel)
     }

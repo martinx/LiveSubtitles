@@ -170,6 +170,9 @@ final class LibraryModel: ObservableObject {
     @Published private(set) var vocabulary: [VocabularyEntry] = []
     @Published private(set) var statistics = LibraryStatistics()
 
+    /// Mirrors the appearance setting so the view can apply it.
+    @Published var appearance: ColorScheme?
+
     // Translation: paragraph by paragraph, on demand, in Simplified Chinese.
     @Published private(set) var translationPhase: TranslationPhase = .off
     @Published private(set) var translations: [Int: String] = [:]

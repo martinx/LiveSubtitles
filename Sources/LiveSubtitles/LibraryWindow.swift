@@ -23,6 +23,8 @@ struct LibraryView: View {
     @State private var renameText = ""
     @State private var confirmDelete: Session?
     @State private var folderPrompt: FolderPrompt?
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: ReadingTheme { ReadingTheme(scheme: colorScheme) }
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -43,6 +45,7 @@ struct LibraryView: View {
         // SwiftUI adds its own sidebar toggle, which slides to the trailing edge once the
         // sidebar is collapsed and reads as a stray button. The window has its own controls.
         .toolbar(removing: .sidebarToggle)
+        .preferredColorScheme(model.appearance)
         .frame(minWidth: 1040, minHeight: 600)
         // ⌘K. A hidden button is the dependable way to claim a shortcut in SwiftUI; the
         // palette then owns the keyboard while it is open.
@@ -484,42 +487,46 @@ struct LibraryView: View {
             } else {
                 ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: Metrics.paragraphSpacing) {
+                    LazyVStack(alignment: .leading, spacing: Reading.paragraphGap) {
                         ForEach(Array(model.paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                            if index > 0 { Divider().padding(.vertical, 2) }
-                            VStack(alignment: .leading, spacing: 6) {
+                            if index > 0 { paragraphRule }
+                            VStack(alignment: .leading, spacing: Reading.cueGap) {
                                 ForEach(paragraph) { cue in
-                                    TokenizedLine(cue: cue,
-                                                  model: model,
-                                                  notes: model.notesByCue[cue.id] ?? [])
+                                    TranscriptLine(cue: cue,
+                                                   model: model,
+                                                   notes: model.notesByCue[cue.id] ?? [])
                                         .id(cue.id)
                                 }
-                                // Gated on the toggle, not just on a translation existing:
-                                // otherwise turning translation off, or a word lookup that
-                                // left old translations behind, would still show them.
                                 if model.paragraphTranslationOn,
                                    let translation = model.translations[index] {
-                                    TranslationBlock(text: translation)
+                                    TranslationLine(text: translation)
                                 }
                             }
                         }
                     }
-                    .padding(.horizontal, Metrics.panePadding)
-                    .padding(.vertical, Metrics.panePadding)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Reading.measurePadding)
+                    .padding(.vertical, 26)
+                    // A column, not a page: the text stops at a width the eye can follow and
+                    // the remaining space is left empty rather than filled with characters.
+                    .frame(maxWidth: Reading.measure + Reading.measurePadding * 2, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
-                // While a session is being recorded, the newest line is the one worth
-                // looking at; without this the reader sits wherever it was left.
+                .background(theme.background)
                 .onChange(of: model.readerCues.count) { _, _ in
                     guard model.selectedSessionID == model.liveSessionID,
                           let last = model.readerCues.last else { return }
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        proxy.scrollTo(last.id, anchor: .bottom)
-                    }
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last.id, anchor: .bottom) }
                 }
                 }
             }
         }
+    }
+
+    private var paragraphRule: some View {
+        Rectangle()
+            .fill(theme.rule)
+            .frame(height: 1)
+            .padding(.vertical, 4)
     }
 
     private var searchResults: some View {
@@ -530,7 +537,7 @@ struct LibraryView: View {
                 ForEach(model.hits) { hit in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(hit.sessionTitle).font(.caption2).foregroundStyle(.tertiary)
-                        TokenizedLine(cue: hit.cue, model: model, notes: [])
+                        TranscriptLine(cue: hit.cue, model: model, notes: [])
                     }
                 }
             }
@@ -703,59 +710,68 @@ struct LibraryView: View {
 
 // MARK: - One line, as words
 
-/// A cue rendered as individually addressable words, so a lookup happens on the word itself.
-private struct TokenizedLine: View {
+/// One line of the transcript.
+///
+/// The words are still individually addressable — double-clicking any of them opens its card —
+/// but the layout is a row of two fixed columns: a gutter for the time, and the sentence. The
+/// previous version let the timestamp and a wrapping word flow share one line, so a cue that
+/// wrapped ran into the cue below it.
+private struct TranscriptLine: View {
     let cue: Cue
     @ObservedObject var model: LibraryModel
     let notes: [Note]
 
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: ReadingTheme { ReadingTheme(scheme: colorScheme) }
+
+    private var isSelected: Bool { model.selectedCueID == cue.id }
+
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            // Who is speaking, when the analysis pass has told us. The raw view drops it.
-            if model.showsEnhanced, let speaker = cue.speaker {
-                SpeakerChip(speaker: speaker, index: model.sessionSpeakers.firstIndex(of: speaker))
-            } else {
-                Color.clear.frame(width: 26)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(cue.timestamp)
+                .font(.system(size: Reading.timestampSize, weight: .regular, design: .monospaced))
+                .foregroundStyle(isSelected ? theme.secondary : theme.tertiary)
+                .frame(width: Reading.gutter, alignment: .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture { model.selectedCueID = cue.id }
+                .contextMenu { lineMenu }
 
-            Button {
-                model.selectedCueID = cue.id
-            } label: {
-                Text(cue.timestamp)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(model.selectedCueID == cue.id ? .primary : .secondary)
-            }
-            .buttonStyle(.plain)
-            .frame(width: 62, alignment: .leading)
-            .contextMenu { lineMenu }
-
-            VStack(alignment: .leading, spacing: 4) {
-                FlowLayout(spacing: 4.5, lineSpacing: 4) {
-                    ForEach(Array(DictionaryLookup.words(in: cue.text).enumerated()), id: \.offset) { _, word in
-                        WordToken(word: word, cue: cue, model: model)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if model.showsEnhanced, let speaker = cue.speaker {
+                        SpeakerChip(speaker: speaker,
+                                    index: model.sessionSpeakers.firstIndex(of: speaker))
                     }
-                }
-                if !notes.isEmpty {
-                    HStack(spacing: 4) {
-                        ForEach(notes) { note in
-                            Label(note.text, systemImage: "note.text")
-                                .font(.caption2)
-                                .lineLimit(1)
-                                .padding(.horizontal, 6).padding(.vertical, 1)
-                                .background(Color.accentColor.opacity(0.15), in: Capsule())
+                    FlowLayout(spacing: 4.6, lineSpacing: Reading.bodyLeading) {
+                        ForEach(Array(DictionaryLookup.words(in: cue.text).enumerated()),
+                                id: \.offset) { _, word in
+                            WordToken(word: word, cue: cue, model: model)
                         }
                     }
                 }
+                if !notes.isEmpty { noteBadges }
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(model.selectedCueID == cue.id ? Color.accentColor.opacity(0.10) : .clear,
-                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.vertical, 3)
+        .padding(.horizontal, 10)
+        .background(isSelected ? theme.selection : .clear,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { model.selectedCueID = cue.id }
         .contextMenu { lineMenu }
+    }
+
+    private var noteBadges: some View {
+        HStack(spacing: 4) {
+            ForEach(notes) { note in
+                Label(note.text, systemImage: "note.text")
+                    .font(.caption2)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Color.accentColor.opacity(0.14), in: Capsule())
+            }
+        }
     }
 
     @ViewBuilder
@@ -782,22 +798,23 @@ private struct WordToken: View {
     let cue: Cue
     @ObservedObject var model: LibraryModel
 
+    @Environment(\.colorScheme) private var colorScheme
+    private var theme: ReadingTheme { ReadingTheme(scheme: colorScheme) }
+
     private var isInspected: Bool {
         model.inspection?.word == word && model.inspection?.cueID == cue.id
     }
 
     var body: some View {
         Text(word)
-            // Sized and spaced so a line reads as a sentence rather than a row of chips:
-            // 15pt with real leading, and almost no padding, since the layout already puts
-            // a word space between tokens.
-            .font(.system(size: 15))
-            .lineSpacing(3)
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 0.5)
-            .padding(.vertical, 1.5)
-            .background(isInspected ? Color.accentColor.opacity(0.20) : .clear,
-                        in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            // Set at reading size with no padding of its own: the flow layout already puts a
+            // word space between tokens, and adding to it made a sentence look like a row of
+            // chips rather than prose.
+            .font(.system(size: Reading.bodySize))
+            .foregroundStyle(theme.text)
+            .padding(.vertical, 0.5)
+            .background(isInspected ? theme.selection : .clear,
+                        in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {
                 model.selectedCueID = cue.id
@@ -1316,23 +1333,26 @@ private struct NoteEditor: View {
 
 // MARK: - Pieces
 
-private struct TranslationBlock: View {
+private struct TranslationLine: View {
     let text: String
+
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                .fill(Color.accentColor.opacity(0.45))
-                .frame(width: 3)
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.35))
+                .frame(width: 2)
             Text(text)
-                .font(.system(size: 14))
-                .lineSpacing(Metrics.lineSpacing)
-                .foregroundStyle(.secondary)
+                .font(.system(size: Reading.translationSize))
+                .lineSpacing(Reading.translationLeading)
+                .foregroundStyle(ReadingTheme(scheme: colorScheme).translation)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .padding(.leading, 72)
+        .padding(.leading, Reading.gutter + 12)
+        .padding(.top, 2)
     }
 }
 
@@ -1500,5 +1520,16 @@ final class LibraryWindow {
 
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+extension Settings {
+    /// The appearance to hand `preferredColorScheme`, or nil to follow the system.
+    var preferredScheme: ColorScheme? {
+        switch appearance {
+        case "light": return .light
+        case "dark":  return .dark
+        default:      return nil
+        }
     }
 }

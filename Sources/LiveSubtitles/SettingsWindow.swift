@@ -62,6 +62,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .preferredColorScheme(settings.preferredScheme)
         .frame(width: 620, height: 620)
     }
 

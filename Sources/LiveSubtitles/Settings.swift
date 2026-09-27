@@ -24,6 +24,7 @@ final class Settings: ObservableObject {
         static let alwaysVisible = "alwaysVisible"
         static let draggable = "draggable"
         static let showInDock = "showInDock"
+        static let appearance = "appearance"
         static let startAtLaunch = "startAtLaunch"
         static let startShortcut = "startShortcut"
         static let pauseShortcut = "pauseShortcut"
@@ -61,6 +62,12 @@ final class Settings: ObservableObject {
     /// Show a Dock icon as well as the menu-bar item. Off by default: an accessory
     /// app can never activate itself over the video.
     @Published var showInDock: Bool { didSet { defaults.set(showInDock, forKey: Key.showInDock) } }
+
+    /// "system", "light" or "dark". Applied with `preferredColorScheme`, so every window —
+    /// the library, the settings, the overlay — follows it together.
+    @Published var appearance: String {
+        didSet { defaults.set(appearance, forKey: Key.appearance) }
+    }
     /// Begin listening as soon as the app launches.
     @Published var startAtLaunch: Bool { didSet { defaults.set(startAtLaunch, forKey: Key.startAtLaunch) } }
 
@@ -117,6 +124,7 @@ final class Settings: ObservableObject {
             Key.alwaysVisible: false,
             Key.draggable: true,
             Key.showInDock: false,
+            Key.appearance: "system",
             Key.startAtLaunch: true,
             Key.startShortcut: KeyShortcut.defaultStart.storage,
             Key.pauseShortcut: KeyShortcut.defaultPause.storage,
@@ -146,6 +154,7 @@ final class Settings: ObservableObject {
         alwaysVisible = defaults.bool(forKey: Key.alwaysVisible)
         draggable = defaults.bool(forKey: Key.draggable)
         showInDock = defaults.bool(forKey: Key.showInDock)
+        appearance = defaults.string(forKey: Key.appearance) ?? "system"
         startAtLaunch = defaults.bool(forKey: Key.startAtLaunch)
         startShortcut = Self.loadShortcut(defaults, Key.startShortcut)
         pauseShortcut = Self.loadShortcut(defaults, Key.pauseShortcut)
