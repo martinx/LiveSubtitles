@@ -354,18 +354,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let libraryItem = NSMenuItem()
         let libraryMenu = NSMenu(title: "Library")
         libraryMenu.autoenablesItems = false
-        libraryMenu.addItem(action("Open Library…", #selector(openLibrary), key: "l",
-                                   symbol: "books.vertical"))
+        libraryMenu.addItem(action("Open Library…", #selector(openLibrary),
+                                   shortcut: controller?.settings.libraryShortcut, symbol: "books.vertical"))
         libraryMenu.addItem(.separator())
-        libraryMenu.addItem(action("New Note…", #selector(newNote), key: "n",
-                                   symbol: "square.and.pencil"))
-        libraryMenu.addItem(action("New Folder…", #selector(newFolder), key: "N",
-                                   symbol: "folder.badge.plus"))
+        libraryMenu.addItem(action("New Note…", #selector(newNote),
+                                   shortcut: controller?.settings.newNoteShortcut, symbol: "square.and.pencil"))
+        libraryMenu.addItem(action("New Folder…", #selector(newFolder),
+                                   shortcut: controller?.settings.newFolderShortcut, symbol: "folder.badge.plus"))
         libraryMenu.addItem(.separator())
-        libraryMenu.addItem(action("Translate This Session", #selector(translateSession), key: "t",
-                                   symbol: "translate"))
-        libraryMenu.addItem(action("Search Everything…", #selector(searchLibrary), key: "f",
-                                   symbol: "magnifyingglass"))
+        libraryMenu.addItem(action("Translate This Session", #selector(translateSession),
+                                   shortcut: controller?.settings.translateShortcut, symbol: "translate"))
+        libraryMenu.addItem(action("Search Everything…", #selector(searchLibrary),
+                                   shortcut: controller?.settings.searchShortcut, symbol: "magnifyingglass"))
         libraryMenu.addItem(.separator())
         libraryMenu.addItem(action("Export as Subtitles…", #selector(exportLibrarySession), key: "e",
                                    symbol: "square.and.arrow.down"))
@@ -489,6 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openLibrary() {
         libraryModel.appearance = controller?.settings.preferredScheme
+        libraryModel.paletteShortcut = controller?.settings.paletteShortcut
         libraryModel.attach(controller?.historyStore())
         libraryWindow.show(model: libraryModel)
     }

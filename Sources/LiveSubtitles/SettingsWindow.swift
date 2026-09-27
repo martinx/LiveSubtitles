@@ -96,6 +96,21 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var general: some View {
+        SettingsCard("Appearance", symbol: "circle.lefthalf.filled",
+                     footer: "Applies to the library and to these settings together. The caption "
+                           + "overlay always sits on the video and follows whatever it is drawn over.") {
+            Row("Theme") {
+                Picker("", selection: $settings.appearance) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 240)
+            }
+        }
+
         SettingsCard("Startup", symbol: "power",
                      footer: "The app is a menu-bar accessory, so it never takes activation away "
                            + "from the video unless the Dock icon is on. The update check is a "
@@ -225,6 +240,23 @@ struct SettingsView: View {
             Row("Pause listening") { ShortcutRecorder(shortcut: $settings.pauseShortcut) }
             Divider()
             Row("Stop listening") { ShortcutRecorder(shortcut: $settings.stopShortcut) }
+        }
+
+        SettingsCard("Library shortcuts", symbol: "macwindow",
+                     footer: "These act on the library window and work while the app is "
+                           + "frontmost, unlike the three above. Escape cancels a recording; "
+                           + "Delete clears it and leaves that command with no key.") {
+            Row("Open Library") { ShortcutRecorder(shortcut: $settings.libraryShortcut) }
+            Divider()
+            Row("New Note") { ShortcutRecorder(shortcut: $settings.newNoteShortcut) }
+            Divider()
+            Row("New Folder") { ShortcutRecorder(shortcut: $settings.newFolderShortcut) }
+            Divider()
+            Row("Translate Session") { ShortcutRecorder(shortcut: $settings.translateShortcut) }
+            Divider()
+            Row("Search") { ShortcutRecorder(shortcut: $settings.searchShortcut) }
+            Divider()
+            Row("Command Palette") { ShortcutRecorder(shortcut: $settings.paletteShortcut) }
         }
 
         SettingsCard("What the states cost", symbol: "info.circle") {

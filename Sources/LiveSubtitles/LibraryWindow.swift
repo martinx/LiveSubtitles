@@ -25,6 +25,24 @@ struct LibraryView: View {
     @State private var folderPrompt: FolderPrompt?
     @Environment(\.colorScheme) private var colorScheme
     private var theme: ReadingTheme { ReadingTheme(scheme: colorScheme) }
+
+    /// The palette's key comes from the settings, like the menu's do.
+    private var paletteKeyEquivalent: KeyEquivalent {
+        guard let shortcut = model.paletteShortcut,
+              let characters = KeyShortcut.menuKeyEquivalent(for: shortcut.keyCode),
+              let first = characters.first else { return "k" }
+        return KeyEquivalent(first)
+    }
+
+    private var paletteModifiers: EventModifiers {
+        guard let flags = model.paletteShortcut?.flags else { return .command }
+        var modifiers: EventModifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        return modifiers.isEmpty ? .command : modifiers
+    }
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -51,7 +69,7 @@ struct LibraryView: View {
         // palette then owns the keyboard while it is open.
         .background {
             Button("") { model.showPalette() }
-                .keyboardShortcut("k", modifiers: .command)
+                .keyboardShortcut(paletteKeyEquivalent, modifiers: paletteModifiers)
                 .opacity(0)
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)

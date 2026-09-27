@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import AppKit
 import Combine
 import CoreGraphics
 
@@ -29,6 +30,12 @@ final class Settings: ObservableObject {
         static let startShortcut = "startShortcut"
         static let pauseShortcut = "pauseShortcut"
         static let stopShortcut = "stopShortcut"
+        static let libraryShortcut = "libraryShortcut"
+        static let newNoteShortcut = "newNoteShortcut"
+        static let newFolderShortcut = "newFolderShortcut"
+        static let translateShortcut = "translateShortcut"
+        static let searchShortcut = "searchShortcut"
+        static let paletteShortcut = "paletteShortcut"
         static let hasSeenWelcome = "hasSeenWelcome"
         static let checkForUpdates = "checkForUpdates"
         static let hasCustomPosition = "hasCustomPosition"
@@ -78,6 +85,27 @@ final class Settings: ObservableObject {
     @Published var pauseShortcut: KeyShortcut? {
         didSet { defaults.set(pauseShortcut?.storage ?? "", forKey: Key.pauseShortcut) }
     }
+    // The window's own commands. Unlike the three above these only work while the app is
+    // frontmost, which is what a menu key equivalent means.
+    @Published var libraryShortcut: KeyShortcut? {
+        didSet { defaults.set(libraryShortcut?.storage ?? "", forKey: Key.libraryShortcut) }
+    }
+    @Published var newNoteShortcut: KeyShortcut? {
+        didSet { defaults.set(newNoteShortcut?.storage ?? "", forKey: Key.newNoteShortcut) }
+    }
+    @Published var newFolderShortcut: KeyShortcut? {
+        didSet { defaults.set(newFolderShortcut?.storage ?? "", forKey: Key.newFolderShortcut) }
+    }
+    @Published var translateShortcut: KeyShortcut? {
+        didSet { defaults.set(translateShortcut?.storage ?? "", forKey: Key.translateShortcut) }
+    }
+    @Published var searchShortcut: KeyShortcut? {
+        didSet { defaults.set(searchShortcut?.storage ?? "", forKey: Key.searchShortcut) }
+    }
+    @Published var paletteShortcut: KeyShortcut? {
+        didSet { defaults.set(paletteShortcut?.storage ?? "", forKey: Key.paletteShortcut) }
+    }
+
     @Published var stopShortcut: KeyShortcut? {
         didSet { defaults.set(stopShortcut?.storage ?? "", forKey: Key.stopShortcut) }
     }
@@ -159,6 +187,22 @@ final class Settings: ObservableObject {
         startShortcut = Self.loadShortcut(defaults, Key.startShortcut)
         pauseShortcut = Self.loadShortcut(defaults, Key.pauseShortcut)
         stopShortcut = Self.loadShortcut(defaults, Key.stopShortcut)
+        // Defaults are the keys these commands have always had, so an existing install keeps
+        // working and a fresh one starts with sensible bindings.
+        let command = NSEvent.ModifierFlags.command.rawValue
+        let commandShift = NSEvent.ModifierFlags([.command, .shift]).rawValue
+        libraryShortcut = Self.loadShortcut(defaults, Key.libraryShortcut)
+            ?? KeyShortcut(keyCode: 37, modifiers: command)          // ⌘L
+        newNoteShortcut = Self.loadShortcut(defaults, Key.newNoteShortcut)
+            ?? KeyShortcut(keyCode: 45, modifiers: command)          // ⌘N
+        newFolderShortcut = Self.loadShortcut(defaults, Key.newFolderShortcut)
+            ?? KeyShortcut(keyCode: 45, modifiers: commandShift)     // ⇧⌘N
+        translateShortcut = Self.loadShortcut(defaults, Key.translateShortcut)
+            ?? KeyShortcut(keyCode: 17, modifiers: command)          // ⌘T
+        searchShortcut = Self.loadShortcut(defaults, Key.searchShortcut)
+            ?? KeyShortcut(keyCode: 3, modifiers: command)           // ⌘F
+        paletteShortcut = Self.loadShortcut(defaults, Key.paletteShortcut)
+            ?? KeyShortcut(keyCode: 40, modifiers: command)          // ⌘K
         hasSeenWelcome = defaults.bool(forKey: Key.hasSeenWelcome)
         checkForUpdates = defaults.bool(forKey: Key.checkForUpdates)
         hasCustomPosition = defaults.bool(forKey: Key.hasCustomPosition)

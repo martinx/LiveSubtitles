@@ -173,6 +173,9 @@ final class LibraryModel: ObservableObject {
     /// Mirrors the appearance setting so the view can apply it.
     @Published var appearance: ColorScheme?
 
+    /// Mirrors the palette's key so the view can bind it.
+    @Published var paletteShortcut: KeyShortcut?
+
     // Translation: paragraph by paragraph, on demand, in Simplified Chinese.
     @Published private(set) var translationPhase: TranslationPhase = .off
     @Published private(set) var translations: [Int: String] = [:]
