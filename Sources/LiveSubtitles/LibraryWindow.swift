@@ -537,7 +537,84 @@ struct LibraryView: View {
 
     // MARK: - Toolbar
 
+    /// The toolbar belongs to the section, not to the window.
+    ///
+    /// A session picker, a transcript search and an export of the transcript are the tools for
+    /// reading an episode; none of them mean anything in the vocabulary. Showing them anyway
+    /// made every section look like it was still the last one.
+    @ViewBuilder
     private var toolbar: some View {
+        switch model.target {
+        case .allSessions, .folder:
+            sessionToolbar
+        case .section(let section):
+            studyToolbar(section)
+        }
+    }
+
+    private func studyToolbar(_ section: LibrarySection) -> some View {
+        HStack(spacing: 12) {
+            Label(section.title, systemImage: section.symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            if case .vocabulary = section {
+                Text("\(model.vocabularyCards.count) saved")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            if case .notebook = section {
+                Text("\(model.notebook.count) note\(model.notebook.count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            if case .favourites = section {
+                Text("\(model.favourites.count) line\(model.favourites.count == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 12)
+
+            switch section {
+            case .vocabulary:
+                if model.dueCount > 0 {
+                    Button {
+                        Task { await model.startReview() }
+                    } label: {
+                        Label("Review \(model.dueCount) due", systemImage: "sparkles")
+                    }
+                    .controlSize(.small)
+                }
+            case .notebook:
+                Button {
+                    model.beginNote(cue: nil)
+                } label: {
+                    Label("New Note", systemImage: "square.and.pencil")
+                }
+                .controlSize(.small)
+            case .favourites:
+                Button {
+                    copyAllFavourites()
+                } label: {
+                    Label("Copy All", systemImage: "doc.on.doc")
+                }
+                .controlSize(.small)
+                .disabled(model.favourites.isEmpty)
+            default:
+                EmptyView()
+            }
+        }
+        .padding(.horizontal, Metrics.panePadding)
+        .padding(.vertical, 12)
+    }
+
+    private func copyAllFavourites() {
+        let text = model.favourites
+            .map { "“\($0.note.text)”\n— \($0.sessionTitle)" }
+            .joined(separator: "\n\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private var sessionToolbar: some View {
         HStack(spacing: 12) {
             Menu {
                 ForEach(model.sessions) { session in
@@ -840,7 +917,26 @@ struct LibraryView: View {
         }
     }
 
+    @ViewBuilder
     private var statusBarBody: some View {
+        // The hints below are about reading a transcript; in the study sections they would be
+        // describing a different screen.
+        if case .section = model.target {
+            HStack(spacing: 10) {
+                Spacer()
+                if let note = model.analysisNote {
+                    Label(note, systemImage: "wand.and.stars")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            .padding(.horizontal, Metrics.panePadding)
+            .padding(.vertical, 7)
+        } else {
+            sessionStatusBar
+        }
+    }
+
+    private var sessionStatusBar: some View {
         HStack(spacing: 10) {
             if model.showsEnhanced, !model.sessionSpeakers.isEmpty {
                 Label("\(model.sessionSpeakers.count) speaker\(model.sessionSpeakers.count == 1 ? "" : "s")",
