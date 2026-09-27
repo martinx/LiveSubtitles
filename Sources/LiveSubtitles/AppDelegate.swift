@@ -22,6 +22,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var welcomeWindow = WelcomeWindow()
     private var updateChecker: UpdateChecker?
 
+    /// Clicking the Dock icon opens the library.
+    ///
+    /// The window is normally opened from the menu bar, so without this a Dock click on a
+    /// running app with no windows open does nothing at all — the icon is there, it takes the
+    /// click, and the window that should follow never appears.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { openLibrary() }
+        return true
+    }
+
+    /// Closing the library does not quit: this is a menu-bar app, and the captions keep
+    /// running whether or not a window is open.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // The recording is only readable once its file has been closed.
         controller?.flushRecording()
